@@ -67,7 +67,7 @@ export default function Home() {
               京都週末トリップ
             </h1>
             <p className="mt-2 text-sm leading-6 text-[#59645f]">
-              旅先でミッションを達成して、仲間とスコアを競い合おう。
+              旅先でミッションを達成して、仲間とスコアを競い合おう！
             </p>
           </div>
 
