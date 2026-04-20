@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
 type Mission = {
   title: string;
   type: "共通" | "極秘";
@@ -47,15 +51,53 @@ const missions: Mission[] = [
 
 const ranking: RankingUser[] = [
   { name: "美咲", role: "写真係", points: 920 },
-  { name: "あなた", role: "探索係", points: 840, isMe: true },
+  { name: "", role: "探索係", points: 840, isMe: true },
   { name: "悠斗", role: "地図係", points: 780 },
   { name: "莉子", role: "グルメ係", points: 710 },
   { name: "健太", role: "記録係", points: 640 },
 ].sort((a, b) => b.points - a.points);
 
 export default function Home() {
+  const [playerName, setPlayerName] = useState("読み込み中");
   const totalPoints = missions.reduce((sum, mission) => sum + mission.points, 0);
   const completedCount = missions.filter((mission) => mission.completed).length;
+  const rankingWithPlayerName = useMemo(
+    () =>
+      ranking.map((user) =>
+        user.isMe ? { ...user, name: playerName } : user,
+      ),
+    [playerName],
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function fetchPlayerName() {
+      try {
+        const response = await fetch("/api/ping");
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch player name.");
+        }
+
+        const data = (await response.json()) as { name?: string };
+
+        if (isMounted) {
+          setPlayerName(data.name ?? "未設定");
+        }
+      } catch {
+        if (isMounted) {
+          setPlayerName("未取得");
+        }
+      }
+    }
+
+    fetchPlayerName();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <main className="min-h-screen bg-[#f7f8f3] text-[#18211f]">
@@ -73,7 +115,7 @@ export default function Home() {
 
           <div className="rounded-lg bg-[#eef4ed] p-4">
             <p className="text-xs font-semibold text-[#607068]">プレイヤー</p>
-            <p className="mt-1 text-lg font-bold">あなた</p>
+            <p className="mt-1 text-lg font-bold">{playerName}</p>
             <p className="mt-1 text-sm text-[#59645f]">探索係・参加中</p>
           </div>
 
@@ -164,7 +206,7 @@ export default function Home() {
             </div>
 
             <ol className="mt-5 grid gap-3">
-              {ranking.map((user, index) => (
+              {rankingWithPlayerName.map((user, index) => (
                 <li
                   key={user.name}
                   className={`grid grid-cols-[44px_1fr_auto] items-center gap-3 rounded-lg border p-3 ${
