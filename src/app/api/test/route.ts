@@ -1,22 +1,21 @@
+import { getSupabaseConfig, supabaseRestFetch } from "@/lib/supabase";
+
 export const dynamic = "force-dynamic";
 
 type SupabaseTestRow = {
   name: string;
 };
 
-const supabaseUrl =
-  process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ??
-  process.env.SUPABASE_ANON_KEY ??
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
 export async function GET() {
-  if (!supabaseUrl || !supabaseKey) {
+  try {
+    getSupabaseConfig();
+  } catch (error) {
     return Response.json(
       {
         error:
-          "Supabase environment variables are missing. Set SUPABASE_URL and SUPABASE_ANON_KEY, or their NEXT_PUBLIC_* equivalents.",
+          error instanceof Error
+            ? error.message
+            : "Supabase configuration is invalid.",
       },
       { status: 500 },
     );
@@ -24,16 +23,7 @@ export async function GET() {
 
   // SQL equivalent:
   // SELECT name FROM test WHERE id = 1 LIMIT 1;
-  const response = await fetch(
-    `${supabaseUrl}/rest/v1/test?select=name&id=eq.1&limit=1`,
-    {
-      headers: {
-        apikey: supabaseKey,
-        Authorization: `Bearer ${supabaseKey}`,
-      },
-      cache: "no-store",
-    },
-  );
+  const response = await supabaseRestFetch("test?select=name&id=eq.1&limit=1");
 
   if (!response.ok) {
     return Response.json(

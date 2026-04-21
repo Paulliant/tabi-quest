@@ -74,7 +74,7 @@ export default function Home() {
 
     async function fetchPlayerName() {
       try {
-        const response = await fetch("/api/ping");
+        const response = await fetch("/api/test");
 
         if (!response.ok) {
           throw new Error("Failed to fetch player name.");
