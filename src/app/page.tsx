@@ -1,6 +1,7 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useEffect, useMemo, useState } from "react";
+import LogoutButton from "@/components/logout-button";
+import { getCurrentProfileFromCookies } from "@/lib/supabase";
 
 type Mission = {
   title: string;
@@ -12,7 +13,6 @@ type Mission = {
 
 type RankingUser = {
   name: string;
-  role: string;
   points: number;
   isMe?: boolean;
 };
@@ -49,62 +49,56 @@ const missions: Mission[] = [
   },
 ];
 
-const ranking: RankingUser[] = [
-  { name: "美咲", role: "写真係", points: 920 },
-  { name: "", role: "探索係", points: 840, isMe: true },
-  { name: "悠斗", role: "地図係", points: 780 },
-  { name: "莉子", role: "グルメ係", points: 710 },
-  { name: "健太", role: "記録係", points: 640 },
-].sort((a, b) => b.points - a.points);
+const rankingBase: RankingUser[] = [
+  { name: "美咲", points: 920 },
+  { name: "", points: 840, isMe: true },
+  { name: "悠斗", points: 780 },
+  { name: "莉子", points: 710 },
+  { name: "健太", points: 640 },
+];
 
-export default function Home() {
-  const [playerName, setPlayerName] = useState("読み込み中");
+export default async function Home() {
+  const profile = await getCurrentProfileFromCookies();
+
+  if (!profile) {
+    redirect("/login");
+  }
+
   const totalPoints = missions.reduce((sum, mission) => sum + mission.points, 0);
   const completedCount = missions.filter((mission) => mission.completed).length;
-  const rankingWithPlayerName = useMemo(
-    () =>
-      ranking.map((user) =>
-        user.isMe ? { ...user, name: playerName } : user,
-      ),
-    [playerName],
-  );
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function fetchPlayerName() {
-      try {
-        const response = await fetch("/api/test");
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch player name.");
-        }
-
-        const data = (await response.json()) as { name?: string };
-
-        if (isMounted) {
-          setPlayerName(data.name ?? "未設定");
-        }
-      } catch {
-        if (isMounted) {
-          setPlayerName("未取得");
-        }
-      }
-    }
-
-    fetchPlayerName();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  const ranking = rankingBase
+    .map((user) =>
+      user.isMe ? { ...user, name: profile.display_name } : user,
+    )
+    .sort((a, b) => b.points - a.points);
 
   return (
     <main className="min-h-screen bg-[#f7f8f3] text-[#18211f]">
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
+      <header className="w-full bg-[#2f6a5d] text-white">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <p className="text-2xl font-bold">TabiQuest</p>
+            <p className="text-sm text-white/85">
+              旅先のひとときを、ミッションでもっと面白く。
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="h-10 rounded-md border border-white/35 px-4 text-sm font-semibold text-white transition hover:bg-white/10"
+            >
+              設定
+            </button>
+            <LogoutButton />
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
         <section className="grid gap-4 rounded-lg border border-[#d9ddd0] bg-white p-4 shadow-sm sm:grid-cols-[1.1fr_0.9fr_0.8fr_0.8fr] sm:items-center">
           <div>
-            <p className="text-sm font-semibold text-[#4f7668]">TabiQuest</p>
+            <p className="text-sm font-semibold text-[#4f7668]">Current Trip</p>
             <h1 className="mt-1 text-2xl font-bold tracking-normal text-[#17211f]">
               京都週末トリップ
             </h1>
@@ -115,8 +109,10 @@ export default function Home() {
 
           <div className="rounded-lg bg-[#eef4ed] p-4">
             <p className="text-xs font-semibold text-[#607068]">プレイヤー</p>
-            <p className="mt-1 text-lg font-bold">{playerName}</p>
-            <p className="mt-1 text-sm text-[#59645f]">探索係・参加中</p>
+            <p className="mt-1 text-lg font-bold">{profile.display_name}</p>
+            <p className="mt-1 text-sm text-[#59645f]">
+              @{profile.username}・参加中
+            </p>
           </div>
 
           <div className="rounded-lg bg-[#f4f1e7] p-4">
@@ -206,9 +202,9 @@ export default function Home() {
             </div>
 
             <ol className="mt-5 grid gap-3">
-              {rankingWithPlayerName.map((user, index) => (
+              {ranking.map((user, index) => (
                 <li
-                  key={user.name}
+                  key={`${user.name}-${index}`}
                   className={`grid grid-cols-[44px_1fr_auto] items-center gap-3 rounded-lg border p-3 ${
                     user.isMe
                       ? "border-[#79a894] bg-[#edf6f1]"
@@ -223,7 +219,6 @@ export default function Home() {
                       {user.name}
                       {user.isMe ? "（自分）" : ""}
                     </p>
-                    <p className="mt-1 text-xs text-[#59645f]">{user.role}</p>
                   </div>
                   <p className="text-lg font-bold text-[#17211f]">
                     {user.points}
@@ -232,6 +227,15 @@ export default function Home() {
                 </li>
               ))}
             </ol>
+
+            <div className="mt-6 flex justify-center">
+              <button
+                type="button"
+                className="h-11 rounded-md bg-[#c74545] px-5 text-sm font-bold text-white transition hover:bg-[#ac3939]"
+              >
+                グループを退出
+              </button>
+            </div>
           </aside>
         </div>
       </div>
