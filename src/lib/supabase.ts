@@ -19,6 +19,22 @@ export type Profile = {
   display_name: string;
 };
 
+export type Trip = {
+  id: string;
+  trip_code: string;
+  trip_name: string;
+  trip_description: string;
+  owner_user_id: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type UserTrip = {
+  user_id: string;
+  trip_id: string;
+  created_at: string;
+};
+
 type AuthUser = {
   id: string;
   email?: string;
@@ -106,6 +122,10 @@ export function usernameToEmail(username: string) {
   return `${validateUsername(username)}@${internalEmailDomain}`;
 }
 
+function normalizeTripCode(tripCode: string) {
+  return tripCode.replace(/[\s-]/g, "");
+}
+
 function requireUserId(user: AuthUser | null | undefined, message: string) {
   if (!user?.id) {
     throw new ApiError(message, 500);
@@ -144,6 +164,13 @@ async function readErrorMessage(response: Response, fallbackMessage: string) {
     );
   } catch {
     return fallbackMessage;
+  }
+}
+
+async function ensureResponseOk(response: Response, fallbackMessage: string) {
+  if (!response.ok) {
+    const message = await readErrorMessage(response, fallbackMessage);
+    throw new ApiError(message, response.status);
   }
 }
 
@@ -360,6 +387,264 @@ export async function getProfileById(id: string) {
   return profile;
 }
 
+export async function getTripById(id: string) {
+  const response = await supabaseRestFetch(
+    `trips?select=id,trip_code,trip_name,trip_description,owner_user_id,created_at,updated_at&id=eq.${encodeURIComponent(id)}&limit=1`,
+    {},
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "trip の取得に失敗しました。");
+
+  const rows = (await response.json()) as Trip[];
+  const trip = rows[0];
+
+  if (!trip) {
+    throw new ApiError("指定された trip が見つかりません。", 404);
+  }
+
+  return trip;
+}
+
+export async function getTripByCode(tripCode: string) {
+  const normalizedCode = normalizeTripCode(tripCode);
+
+  if (!/^\d{9}$/.test(normalizedCode)) {
+    throw new ApiError("旅 ID は9桁の数字で入力してください。", 400);
+  }
+
+  const response = await supabaseRestFetch(
+    `trips?select=id,trip_code,trip_name,trip_description,owner_user_id,created_at,updated_at&trip_code=eq.${encodeURIComponent(normalizedCode)}&limit=1`,
+    {},
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "旅 ID の確認に失敗しました。");
+
+  const rows = (await response.json()) as Trip[];
+  const trip = rows[0];
+
+  if (!trip) {
+    throw new ApiError("指定された旅が見つかりません。", 404);
+  }
+
+  return trip;
+}
+
+export async function getTripForUser(userId: string) {
+  const membershipResponse = await supabaseRestFetch(
+    `user_trips?select=user_id,trip_id,created_at&user_id=eq.${encodeURIComponent(userId)}&order=created_at.asc&limit=1`,
+    {},
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(
+    membershipResponse,
+    "参加中の trip の確認に失敗しました。",
+  );
+
+  const memberships = (await membershipResponse.json()) as UserTrip[];
+  const membership = memberships[0];
+
+  if (!membership) {
+    return null;
+  }
+
+  return getTripById(membership.trip_id);
+}
+
+async function addUserToTrip(userId: string, tripId: string) {
+  const response = await supabaseRestFetch(
+    "user_trips",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        trip_id: tripId,
+      }),
+    },
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "trip への参加情報を保存できませんでした。");
+
+  const rows = (await response.json()) as UserTrip[];
+  return rows[0];
+}
+
+async function removeUserFromTrip(userId: string, tripId: string) {
+  const response = await supabaseRestFetch(
+    `user_trips?user_id=eq.${encodeURIComponent(userId)}&trip_id=eq.${encodeURIComponent(tripId)}`,
+    {
+      method: "DELETE",
+    },
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "trip からの退出に失敗しました。");
+}
+
+async function deleteTripById(tripId: string) {
+  const response = await supabaseRestFetch(
+    `trips?id=eq.${encodeURIComponent(tripId)}`,
+    {
+      method: "DELETE",
+    },
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "trip の終了に失敗しました。");
+}
+
+async function generateUniqueTripCode() {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const candidate = `${Math.floor(Math.random() * 1_000_000_000)}`.padStart(
+      9,
+      "0",
+    );
+
+    const response = await supabaseRestFetch(
+      `trips?select=id&trip_code=eq.${candidate}&limit=1`,
+      {},
+      { useServiceRole: true },
+    );
+
+    await ensureResponseOk(response, "旅 ID の生成に失敗しました。");
+
+    const rows = (await response.json()) as Array<{ id: string }>;
+
+    if (!rows[0]) {
+      return candidate;
+    }
+  }
+
+  throw new ApiError("利用可能な旅 ID を生成できませんでした。", 500);
+}
+
+export async function createTripForUser(input: {
+  userId: string;
+  tripName: string;
+  tripDescription: string;
+}) {
+  const tripName = input.tripName.trim();
+  const tripDescription = input.tripDescription.trim();
+
+  if (!tripName) {
+    throw new ApiError("trip 名を入力してください。", 400);
+  }
+
+  if (!tripDescription) {
+    throw new ApiError("trip の説明を入力してください。", 400);
+  }
+
+  const existingTrip = await getTripForUser(input.userId);
+
+  if (existingTrip) {
+    throw new ApiError("すでに参加中の trip があります。", 409);
+  }
+
+  const tripCode = await generateUniqueTripCode();
+
+  const response = await supabaseRestFetch(
+    "trips",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify({
+        trip_code: tripCode,
+        trip_name: tripName,
+        trip_description: tripDescription,
+        owner_user_id: input.userId,
+      }),
+    },
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "trip の作成に失敗しました。");
+
+  const rows = (await response.json()) as Trip[];
+  const trip = rows[0];
+
+  if (!trip) {
+    throw new ApiError("作成した trip を取得できませんでした。", 500);
+  }
+
+  try {
+    await addUserToTrip(input.userId, trip.id);
+  } catch (error) {
+    await deleteTripById(trip.id);
+    throw error;
+  }
+
+  return trip;
+}
+
+export async function joinTripForUser(input: {
+  userId: string;
+  tripCode: string;
+}) {
+  const tripCode = normalizeTripCode(input.tripCode);
+
+  if (!tripCode) {
+    throw new ApiError("旅 ID を入力してください。", 400);
+  }
+
+  const existingTrip = await getTripForUser(input.userId);
+
+  if (existingTrip) {
+    throw new ApiError("すでに参加中の trip があります。", 409);
+  }
+
+  const trip = await getTripByCode(tripCode);
+  await addUserToTrip(input.userId, trip.id);
+
+  return trip;
+}
+
+export async function leaveOrEndTripForUser(input: {
+  userId: string;
+  tripId: string;
+}) {
+  const trip = await getTripById(input.tripId);
+
+  const membershipResponse = await supabaseRestFetch(
+    `user_trips?select=user_id,trip_id&user_id=eq.${encodeURIComponent(input.userId)}&trip_id=eq.${encodeURIComponent(input.tripId)}&limit=1`,
+    {},
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(
+    membershipResponse,
+    "trip 参加状態の確認に失敗しました。",
+  );
+
+  const memberships = (await membershipResponse.json()) as Array<{
+    user_id: string;
+    trip_id: string;
+  }>;
+
+  if (!memberships[0]) {
+    throw new ApiError("この trip のメンバーではありません。", 403);
+  }
+
+  const isOwner = trip.owner_user_id === input.userId;
+
+  if (isOwner) {
+    await deleteTripById(trip.id);
+    return { ended: true, tripId: trip.id };
+  }
+
+  await removeUserFromTrip(input.userId, trip.id);
+  return { ended: false, tripId: trip.id };
+}
+
 export async function getCurrentProfileFromAccessToken(accessToken: string) {
   const user = await getAuthUser(accessToken);
   return getProfileById(user.id);
@@ -378,4 +663,14 @@ export async function getCurrentProfileFromCookies() {
   } catch {
     return null;
   }
+}
+
+export async function getCurrentTripFromCookies() {
+  const profile = await getCurrentProfileFromCookies();
+
+  if (!profile) {
+    return null;
+  }
+
+  return getTripForUser(profile.id);
 }
