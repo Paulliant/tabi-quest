@@ -1072,25 +1072,20 @@ async function getTripMemberships(tripId: string) {
   return (await response.json()) as UserTrip[];
 }
 
-export async function getRankingForUser(userId: string) {
-  const trip = await getTripForUser(userId);
-
-  if (!trip) {
-    return {
-      trip: null,
-      ranking: [],
-    };
-  }
-
-  const memberships = await getTripMemberships(trip.id);
-  const activeMemberships = memberships.filter(
-    (membership) => !membership.settlement_pending,
-  );
-  const activeUserIds = activeMemberships.map((membership) => membership.user_id);
+async function getRankingForTrip(input: {
+  trip: Trip;
+  userId: string;
+  includeSettlementPending: boolean;
+}) {
+  const memberships = await getTripMemberships(input.trip.id);
+  const rankingMemberships = input.includeSettlementPending
+    ? memberships
+    : memberships.filter((membership) => !membership.settlement_pending);
+  const rankingUserIds = rankingMemberships.map((membership) => membership.user_id);
   const completedMissionsResponse =
-    activeUserIds.length > 0
+    rankingUserIds.length > 0
       ? await supabaseRestFetch(
-          `mission?select=id,user_id,point,process&user_id=in.(${activeUserIds.map(encodeURIComponent).join(",")})&process=eq.2`,
+          `mission?select=id,user_id,point,process&user_id=in.(${rankingUserIds.map(encodeURIComponent).join(",")})&process=eq.2`,
           {},
           { useServiceRole: true },
         )
@@ -1131,7 +1126,7 @@ export async function getRankingForUser(userId: string) {
   }
 
   const profiles = await Promise.all(
-    activeMemberships.map((membership) => getProfileById(membership.user_id)),
+    rankingMemberships.map((membership) => getProfileById(membership.user_id)),
   );
   const ranking = profiles
     .map((profile) => {
@@ -1146,7 +1141,7 @@ export async function getRankingForUser(userId: string) {
         display_name: profile.display_name,
         points: score.points,
         completed_missions: score.completedMissions,
-        is_me: profile.id === userId,
+        is_me: profile.id === input.userId,
       } satisfies RankingEntry;
     })
     .sort(
@@ -1154,9 +1149,43 @@ export async function getRankingForUser(userId: string) {
     );
 
   return {
-    trip,
+    trip: input.trip,
     ranking,
   };
+}
+
+export async function getRankingForUser(userId: string) {
+  const trip = await getTripForUser(userId);
+
+  if (!trip) {
+    return {
+      trip: null,
+      ranking: [],
+    };
+  }
+
+  return getRankingForTrip({
+    trip,
+    userId,
+    includeSettlementPending: false,
+  });
+}
+
+export async function getSettlementRankingForUser(userId: string) {
+  const pendingSettlement = await getPendingSettlementForUser(userId);
+
+  if (!pendingSettlement) {
+    return {
+      trip: null,
+      ranking: [],
+    };
+  }
+
+  return getRankingForTrip({
+    trip: pendingSettlement.trip,
+    userId,
+    includeSettlementPending: true,
+  });
 }
 
 export async function createTripForUser(input: {

@@ -4,26 +4,20 @@ import LogoutButton from "@/components/logout-button";
 import SettlementFinishButton from "@/components/settlement-finish-button";
 import {
   getCurrentProfileFromCookies,
+  getMissionsForTripUser,
   getPendingSettlementForUser,
+  getSettlementRankingForUser,
+  type MissionAccess,
+  type MissionProcess,
 } from "@/lib/supabase";
 
-const completedTasks = [
-  {
-    title: "橋の上で集合写真",
-    summary: "全員で撮影した旅の記念ショット。",
-    points: 180,
-  },
-  {
-    title: "朝市で一番人気を聞く",
-    summary: "地元のおすすめを聞いて共有済み。",
-    points: 120,
-  },
-  {
-    title: "知らない路地を提案する",
-    summary: "新しい寄り道ルートを提案して採用された。",
-    points: 260,
-  },
-];
+function getAccessLabel(access: MissionAccess) {
+  return access === 1 ? "極秘" : "共通";
+}
+
+function getProcessLabel(process: MissionProcess) {
+  return process === 2 ? "完了" : "未完了";
+}
 
 export default async function SettlementPage() {
   const profile = await getCurrentProfileFromCookies();
@@ -38,7 +32,20 @@ export default async function SettlementPage() {
     redirect("/");
   }
 
-  const totalPoints = completedTasks.reduce((sum, task) => sum + task.points, 0);
+  const [missions, rankingResult] = await Promise.all([
+    getMissionsForTripUser({
+      tripId: pendingSettlement.trip.id,
+      userId: profile.id,
+    }),
+    getSettlementRankingForUser(profile.id),
+  ]);
+  const ranking = rankingResult.ranking;
+  const completedMissions = missions.filter((mission) => mission.process === 2);
+  const completedCount = completedMissions.length;
+  const totalPoints = completedMissions.reduce(
+    (sum, mission) => sum + mission.point,
+    0,
+  );
 
   return (
     <main className="min-h-screen bg-[#f7f8f3] text-[#18211f]">
@@ -63,13 +70,13 @@ export default async function SettlementPage() {
       </header>
 
       <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <section className="rounded-lg border border-[#d9ddd0] bg-white p-6 shadow-sm">
-          <p className="text-sm font-semibold text-[#4f7668]">Settlement</p>
+        <section className="rounded-lg border border-[#d9ddd0] bg-white p-5 shadow-sm sm:p-6">
+          <p className="text-sm font-semibold text-[#4f7668]">Trip Summary</p>
           <h1 className="mt-2 text-3xl font-bold">
-            {pendingSettlement.trip.trip_name} の結算
+            {pendingSettlement.trip.trip_name} の終了画面
           </h1>
           <p className="mt-3 text-sm leading-6 text-[#59645f]">
-            {profile.display_name} さんが今回の旅で達成した内容です。確認後に終了してください。
+            {profile.display_name} さんの達成状況と、旅メンバーのランキングです。
           </p>
 
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
@@ -80,33 +87,107 @@ export default async function SettlementPage() {
             </div>
             <div className="rounded-lg bg-[#f4f1e7] p-4">
               <p className="text-xs font-semibold text-[#766b4f]">完了タスク</p>
-              <p className="mt-1 text-3xl font-bold">{completedTasks.length}</p>
+              <p className="mt-1 text-3xl font-bold">
+                {completedCount}/{missions.length}
+              </p>
             </div>
             <div className="rounded-lg bg-[#edf1f6] p-4">
-              <p className="text-xs font-semibold text-[#53677b]">合計ポイント</p>
+              <p className="text-xs font-semibold text-[#53677b]">獲得ポイント</p>
               <p className="mt-1 text-3xl font-bold">{totalPoints}</p>
             </div>
           </div>
-
-          <div className="mt-8 grid gap-4">
-            {completedTasks.map((task) => (
-              <article
-                key={task.title}
-                className="rounded-lg border border-[#e1e4db] bg-[#fbfcf8] p-4"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h2 className="text-lg font-bold">{task.title}</h2>
-                  <p className="text-base font-bold text-[#315f52]">{task.points} pt</p>
-                </div>
-                <p className="mt-3 text-sm leading-6 text-[#59645f]">
-                  {task.summary}
-                </p>
-              </article>
-            ))}
-          </div>
-
-          <SettlementFinishButton />
         </section>
+
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <section className="rounded-lg border border-[#d9ddd0] bg-white p-4 shadow-sm sm:p-6">
+            <div className="border-b border-[#e3e6dc] pb-4">
+              <p className="text-sm font-semibold text-[#4f7668]">Tasks</p>
+              <h2 className="text-2xl font-bold tracking-normal">
+                タスク一覧とコンプリート状況
+              </h2>
+            </div>
+
+            <div className="mt-5 grid gap-4">
+              {missions.map((mission) => (
+                <article
+                  key={mission.id}
+                  className="rounded-lg border border-[#e1e4db] bg-[#fbfcf8] p-4"
+                >
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h3 className="text-lg font-bold">
+                      {mission.mission_name}
+                    </h3>
+                    <span
+                      className={`rounded-md px-2.5 py-1 text-xs font-bold ${
+                        mission.access === 1
+                          ? "bg-[#2f3432] text-white"
+                          : "bg-[#dce9df] text-[#285847]"
+                      }`}
+                    >
+                      {getAccessLabel(mission.access)}
+                    </span>
+                    <span
+                      className={`rounded-md px-2.5 py-1 text-xs font-bold ${
+                        mission.process === 2
+                          ? "bg-[#dce9df] text-[#285847]"
+                          : "bg-[#f4f1e7] text-[#766b4f]"
+                      }`}
+                    >
+                      {getProcessLabel(mission.process)}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-[#59645f]">
+                    {mission.mission_description}
+                  </p>
+                  <p className="mt-3 text-base font-bold text-[#315f52]">
+                    {mission.point} pt
+                  </p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <aside className="rounded-lg border border-[#d9ddd0] bg-white p-4 shadow-sm sm:p-6">
+            <div className="border-b border-[#e3e6dc] pb-4">
+              <p className="text-sm font-semibold text-[#4f7668]">Ranking</p>
+              <h2 className="text-2xl font-bold tracking-normal">
+                最終ランキング
+              </h2>
+            </div>
+
+            <ol className="mt-5 grid gap-3">
+              {ranking.map((user, index) => (
+                <li
+                  key={user.user_id}
+                  className={`grid grid-cols-[44px_1fr_auto] items-center gap-3 rounded-lg border p-3 ${
+                    user.is_me
+                      ? "border-[#79a894] bg-[#edf6f1]"
+                      : "border-[#e1e4db] bg-[#fbfcf8]"
+                  }`}
+                >
+                  <span className="flex h-10 w-10 items-center justify-center rounded-md bg-white text-base font-bold text-[#315f52]">
+                    {index + 1}
+                  </span>
+                  <div>
+                    <p className="font-bold">
+                      {user.display_name}
+                      {user.is_me ? "（自分）" : ""}
+                    </p>
+                    <p className="text-xs text-[#59645f]">
+                      完了 {user.completed_missions} 件
+                    </p>
+                  </div>
+                  <p className="text-lg font-bold text-[#17211f]">
+                    {user.points}
+                    <span className="ml-1 text-xs text-[#59645f]">pt</span>
+                  </p>
+                </li>
+              ))}
+            </ol>
+
+            <SettlementFinishButton />
+          </aside>
+        </div>
       </div>
     </main>
   );
