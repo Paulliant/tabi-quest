@@ -34,6 +34,12 @@ const MISSION_POINT_VALUES = [10, 20, 30, 40, 50] as const;
 const MISSION_CLEAR_METHODS = [0, 1, 2, 3] as const;
 
 function getOpenAIApiKey() {
+	const envKey = process.env.OPENAI_API_KEY?.trim();
+
+	if (envKey) {
+		return envKey;
+	}
+
 	const keyPath = path.join(process.cwd(), "src", "lib", "gpt", ".openai.key");
 
 	try {
@@ -45,7 +51,7 @@ function getOpenAIApiKey() {
 		// `.openai.key` がない場合は環境変数へフォールバックする。
 	}
 
-	return process.env.OPENAI_API_KEY ?? "";
+	return "";
 }
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
