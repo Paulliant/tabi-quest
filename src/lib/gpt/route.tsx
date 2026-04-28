@@ -15,6 +15,9 @@ export type MissionGenerationInput = {
 	language?: string;
 	tripTitle?: string;
 	missionCount?: number;
+	generationMode?: "common" | "secret";
+	playerName?: string;
+	username?: string;
 };
 
 export type GeneratedMission = {
@@ -128,6 +131,33 @@ function normalizeMissionCount(value: unknown) {
 	return Math.min(10, Math.max(1, Math.trunc(value)));
 }
 
+function getDefaultMissionCount(mode: MissionGenerationInput["generationMode"]) {
+	return mode === "secret" ? 3 : 3;
+}
+
+function getMissionLabel(mode: MissionGenerationInput["generationMode"]) {
+	return mode === "secret" ? "極秘ミッション" : "共通ミッション";
+}
+
+function getMissionModePrompt(mode: MissionGenerationInput["generationMode"]) {
+	if (mode === "secret") {
+		return [
+			"あなたは旅行を盛り上げるミッション生成AIです。",
+			"ユーザーから『旅行名』と『自由記述』が与えられます。",
+			"それをもとに、個人にだけ与えられる極秘ミッションを生成してください。",
+			"個人で実行できる内容にし、他メンバーにバレない範囲で実行できるようにしてください。",
+			"安全で倫理的に問題のない内容のみを生成してください。",
+		].join("\n");
+	}
+
+	return [
+		"あなたは旅行を盛り上げるミッション生成AIです。",
+		"ユーザーから『旅行名』と『自由記述』が与えられます。",
+		"それをもとに、旅行中に実行できる共通ミッションを生成してください。",
+		"安全で倫理的に問題のない内容のみを生成してください。",
+	].join("\n");
+}
+
 function extractBlockValue(block: string, label: string) {
 	const pattern = new RegExp(`${label}：?\\s*([\\s\\S]*?)(?:\\n(?:ミッション名|説明|ミッション種別|ポイント|クリア方法|---|$))`);
 	const match = block.match(pattern);
@@ -216,7 +246,12 @@ async function readInputFromRequest(request: Request) {
 
 async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 	const apiKey = getOpenAIApiKey();
-	const missionCount = normalizeMissionCount(input.missionCount);
+	const missionCount = normalizeMissionCount(
+		input.missionCount ?? getDefaultMissionCount(input.generationMode),
+	);
+	const missionLabel = getMissionLabel(input.generationMode);
+	const missionModePrompt = getMissionModePrompt(input.generationMode);
+	const playerName = input.playerName ?? input.username ?? "（未指定）";
 
 	if (!apiKey) {
 		throw new Error(".openai.key か OPENAI_API_KEY が設定されていません。");
@@ -234,17 +269,20 @@ async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 			messages: [
 				{
 					role: "system",
-					content:
-						"あなたは旅行を盛り上げるミッション生成AIです。ユーザーから与えられた旅行名と自由記述をもとに、安全で倫理的な共通ミッションを生成してください。出力は指定フォーマットのみで、余計な説明は一切書かないでください。",
+					content: missionModePrompt,
 				},
 				{
 					role: "user",
 					content: [
-						"ユーザーから『旅行名』と『自由記述』が与えられます。",
-						"それをもとに、旅行中に実行できる共通ミッションを生成してください。",
+						`それをもとに、旅行中に実行できる${missionLabel}を生成してください。`,
+						input.generationMode === "secret"
+							? `対象ユーザー: ${playerName}`
+							: "",
 						"",
 						"# 目的",
-						"- 全員で協力・共有して楽しめる体験を作る",
+						input.generationMode === "secret"
+							? "- 個人ごとに違う行動を促してゲーム性を高める"
+							: "- 全員で協力・共有して楽しめる体験を作る",
 						"- 観光・行動・発見・軽い交流の要素を含める",
 						"- 安全で倫理的に問題のない内容のみを生成する",
 						"",
@@ -271,7 +309,7 @@ async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 						"（ここに記述）",
 						"",
 						"ミッション種別：",
-						"共通ミッション",
+						missionLabel,
 						"",
 						"ポイント：",
 						"（10,20,30,40,50の数値）",
@@ -282,18 +320,31 @@ async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 						"---（区切り線として必ず出力）",
 						"",
 						"# ルール",
-						`- 共通ミッションは${missionCount}個生成する`,
-						"- 全員で同時または協力して達成できる内容にする",
+						input.generationMode === "secret"
+							? `- 極秘ミッションは${missionCount}個生成する`
+							: `- 共通ミッションは${missionCount}個生成する`,
+						input.generationMode === "secret"
+							? "- 個人で実行できる内容にする"
+							: "- 全員で同時または協力して達成できる内容にする",
 						"- 内容はバリエーションを持たせる",
+						input.generationMode === "secret"
+							? "- 迷惑にならない範囲で行動する内容にする"
+							: "",
+						input.generationMode === "secret"
+							? "- 行き先がわかるなら行先に関連したミッションにする"
+							: "",
 						"",
 						"# クリア方法",
-						"0：そのまま完了",
-						"1：投票",
-						"2：写真付き投票",
+						input.generationMode === "secret"
+							? ["0：そのまま完了", "1：投票", "2：写真付き投票", "3：位置情報で判定"]
+							: ["0：そのまま完了", "1：投票", "2：写真付き投票"],
 						"",
 						"# 入力",
 						`旅行名: ${input.tripTitle ?? "（未指定）"}`,
 						`自由記述: ${travelText}`,
+						input.generationMode === "secret"
+							? "- 極秘ミッションは3個生成する"
+							: "",
 						"",
 					]
 						.filter(Boolean)

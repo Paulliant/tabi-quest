@@ -113,6 +113,7 @@ type MissionDraft = {
 };
 
 const COMMON_MISSION_COUNT = 3;
+const SECRET_MISSION_COUNT = 2;
 
 export class ApiError extends Error {
   status: number;
@@ -746,6 +747,30 @@ function hasOldCommonMissions(missions: Mission[]) {
   );
 }
 
+function hasOldSecretMissions(missions: Mission[]) {
+  const secretMissions = missions.filter((mission) => mission.access === 1);
+
+  if (secretMissions.length === 0) {
+    return false;
+  }
+
+  return secretMissions.some(
+    (mission) => getMissionGenerationSource(mission) !== "gpt_secret",
+  );
+}
+
+function hasCompleteGeneratedMissionSet(missions: Mission[]) {
+  const commonCount = missions.filter((mission) => mission.access === 0).length;
+  const secretCount = missions.filter((mission) => mission.access === 1).length;
+
+  return (
+    commonCount >= COMMON_MISSION_COUNT &&
+    secretCount >= SECRET_MISSION_COUNT &&
+    !hasOldCommonMissions(missions) &&
+    !hasOldSecretMissions(missions)
+  );
+}
+
 function normalizeGeneratedMissionType(clearMethod: number): MissionType {
   if (clearMethod === 1) {
     return 1;
@@ -801,6 +826,53 @@ async function getGeneratedCommonMissionDrafts(trip: Trip) {
 
   if (drafts.length < COMMON_MISSION_COUNT) {
     throw new ApiError("GPT から十分な数の共通ミッションを生成できませんでした。", 500);
+  }
+
+  return drafts;
+}
+
+async function getGeneratedSecretMissionDrafts(input: {
+  trip: Trip;
+  userId: string;
+}) {
+  const profile = await getProfileById(input.userId);
+  const result = await generateMissionFromTravelInput({
+    tripTitle: input.trip.trip_name,
+    travelNotes: input.trip.trip_description,
+    generationMode: "secret",
+    missionCount: SECRET_MISSION_COUNT,
+    playerName: profile.display_name,
+    username: profile.username,
+  });
+
+  const drafts = result.missions.slice(0, SECRET_MISSION_COUNT).map((mission) => {
+    const clearMethod = Number(mission.additional[0]);
+
+    return {
+      mission_id: createMissionGroupId(),
+      mission_name: mission.missionName,
+      mission_description: mission.description,
+      access: 1 as MissionAccess,
+      point: normalizeGeneratedPoint(mission.points),
+      process: 0 as MissionProcess,
+      mission_type: normalizeGeneratedMissionType(clearMethod),
+      extra_data: {
+        generated_type: mission.type1,
+        player_name: profile.display_name,
+      },
+      additional: {
+        clear_method: Number.isFinite(clearMethod) ? clearMethod : 0,
+        generation_source: "gpt_secret",
+        user_id: input.userId,
+        trip_id: input.trip.id,
+      },
+      generation_mode: "gpt",
+      generation_source: "gpt_secret",
+    } satisfies MissionDraft;
+  });
+
+  if (drafts.length < SECRET_MISSION_COUNT) {
+    throw new ApiError("GPT から十分な数の極秘ミッションを生成できませんでした。", 500);
   }
 
   return drafts;
@@ -1038,7 +1110,14 @@ export async function createMissionsForTripUser(input: {
     userId: input.userId,
   });
 
-  if (existingMissions.length > 0) {
+  if (existingMissions.length > 0 && existingMissions.some((mission) => mission.process === 2)) {
+    return {
+      created: false,
+      missions: existingMissions,
+    };
+  }
+
+  if (existingMissions.length > 0 && hasCompleteGeneratedMissionSet(existingMissions)) {
     return {
       created: false,
       missions: existingMissions,
@@ -1054,7 +1133,16 @@ export async function createMissionsForTripUser(input: {
         );
         return getDefaultCommonMissionDrafts();
       });
-  const secretDrafts = getDefaultSecretMissionDrafts();
+  const secretDrafts = await getGeneratedSecretMissionDrafts({
+    trip: input.trip,
+    userId: input.userId,
+  }).catch((error) => {
+    console.warn(
+      "GPT secret mission generation failed. Falling back to fixed secret missions.",
+      error,
+    );
+    return getDefaultSecretMissionDrafts();
+  });
 
   if (input.copyCommonFromOwner && commonDrafts.length < COMMON_MISSION_COUNT) {
     throw new ApiError(
@@ -1114,7 +1202,7 @@ export async function listMissionsForUser(userId: string) {
   if (
     trip.owner_user_id === userId &&
     missions.length > 0 &&
-    hasOldCommonMissions(missions) &&
+    (!hasCompleteGeneratedMissionSet(missions) || hasOldCommonMissions(missions) || hasOldSecretMissions(missions)) &&
     !missions.some((mission) => mission.process === 2)
   ) {
     await deleteMissionsForUser(userId);
