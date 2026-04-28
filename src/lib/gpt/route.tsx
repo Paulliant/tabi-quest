@@ -61,7 +61,8 @@ function getOpenAIApiKey() {
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
 const OPENAI_REQUEST_TIMEOUT_MS = 30_000;
-const OPENAI_MAX_RETRIES = 3;
+const OPENAI_MAX_RETRY_WINDOW_MS = 55_000;
+const OPENAI_RETRY_DELAY_MS = 1_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -139,6 +140,20 @@ function sleep(ms: number) {
 
 function shouldRetryStatus(status: number) {
 	return status === 408 || status === 409 || status === 429 || status >= 500;
+}
+
+function shouldRetryError(error: Error) {
+	const message = error.message.toLowerCase();
+
+	return (
+		error.name === "AbortError" ||
+		message.includes("timeout") ||
+		message.includes("timed out") ||
+		message.includes("econnreset") ||
+		message.includes("enotfound") ||
+		message.includes("socket hang up") ||
+		message.includes("temporarily unavailable")
+	);
 }
 
 function getDefaultMissionCount(mode: MissionGenerationInput["generationMode"]) {
@@ -385,8 +400,11 @@ async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 	}
 
 	let lastError: Error | null = null;
+	const retryDeadline = Date.now() + OPENAI_MAX_RETRY_WINDOW_MS;
+	let attempt = 0;
 
-	for (let attempt = 0; attempt < OPENAI_MAX_RETRIES; attempt += 1) {
+	while (Date.now() < retryDeadline) {
+		attempt += 1;
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), OPENAI_REQUEST_TIMEOUT_MS);
 
@@ -483,8 +501,8 @@ async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 			if (!response.ok) {
 				const errorText = await response.text().catch(() => "");
 
-				if (shouldRetryStatus(response.status) && attempt < OPENAI_MAX_RETRIES - 1) {
-					await sleep(700 * (attempt + 1));
+				if (shouldRetryStatus(response.status) && Date.now() < retryDeadline) {
+					await sleep(Math.min(OPENAI_RETRY_DELAY_MS * attempt, 5_000));
 					continue;
 				}
 
@@ -510,8 +528,12 @@ async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 			try {
 				const parsed = JSON.parse(content) as unknown;
 				return validateMissionResponse(parsed, missionCount);
-			} catch {
-				return parseMissionResponseText(content);
+			} catch (jsonError) {
+				try {
+					return parseMissionResponseText(content);
+				} catch {
+					throw jsonError;
+				}
 			}
 		} catch (error) {
 			clearTimeout(timeoutId);
@@ -522,14 +544,23 @@ async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 				lastError = new Error("OpenAI API の応答がタイムアウトしました。");
 			}
 
-			if (attempt < OPENAI_MAX_RETRIES - 1) {
-				await sleep(700 * (attempt + 1));
+			if (shouldRetryError(lastError) && Date.now() < retryDeadline) {
+				await sleep(Math.min(OPENAI_RETRY_DELAY_MS * attempt, 5_000));
 				continue;
 			}
+
+			throw lastError;
 		}
 	}
 
-	throw lastError ?? new Error("OpenAI からミッションを生成できませんでした。");
+	throw (
+		lastError ??
+		new Error(
+			`OpenAI からミッションを生成できませんでした。${Math.floor(
+				OPENAI_MAX_RETRY_WINDOW_MS / 1000,
+			)}秒以内に有効な応答を取得できませんでした。`,
+		)
+	);
 }
 
 export async function generateMissionFromTravelInput(

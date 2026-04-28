@@ -835,125 +835,6 @@ async function getGeneratedSecretMissionDrafts(input: {
   return drafts;
 }
 
-function pickRandomMissionDrafts(drafts: MissionDraft[], count: number) {
-  return [...drafts]
-    .sort(() => Math.random() - 0.5)
-    .slice(0, count)
-    .map((draft) => ({
-      ...draft,
-      mission_id: draft.mission_id ?? createMissionGroupId(),
-      extra_data: draft.extra_data,
-      additional: draft.additional,
-    }));
-}
-
-function getDefaultCommonMissionDrafts(): MissionDraft[] {
-  return [
-    {
-      mission_id: createMissionGroupId(),
-      mission_name: "旅先らしい写真を撮る",
-      mission_description:
-        "旅先の雰囲気が伝わる写真を撮って、グループ内で共有する。",
-      access: 0,
-      point: 100,
-      process: 0,
-      mission_type: 2,
-    },
-    {
-      mission_id: createMissionGroupId(),
-      mission_name: "地元のおすすめを聞く",
-      mission_description:
-        "店員さんや地元の人におすすめを聞き、次の行き先や食べ物の参考にする。",
-      access: 0,
-      point: 120,
-      process: 0,
-      mission_type: 0,
-    },
-    {
-      mission_id: createMissionGroupId(),
-      mission_name: "全員で旅の感想を一言共有する",
-      mission_description:
-        "休憩や移動のタイミングで、今の旅で印象に残ったことを一人ずつ共有する。",
-      access: 0,
-      point: 110,
-      process: 0,
-      mission_type: 0,
-    },
-  ];
-}
-
-function getDefaultSecretMissionPool(): MissionDraft[] {
-  return [
-    {
-      mission_name: "仲間を自然に褒める",
-      mission_description:
-        "自分のミッションだと気づかれないように、旅の途中で仲間を一度褒める。",
-      access: 1,
-      point: 200,
-      process: 0,
-      mission_type: 0,
-    },
-    {
-      mission_name: "予定にない寄り道を提案する",
-      mission_description:
-        "安全な範囲で、予定にない道や店を一つ提案する。採用されたら達成。",
-      access: 1,
-      point: 220,
-      process: 0,
-      mission_type: 1,
-    },
-    {
-      mission_name: "旅先の小さな発見を共有する",
-      mission_description:
-        "看板、景色、音、匂いなど、気づいた小さな発見を自然に話題にする。",
-      access: 1,
-      point: 180,
-      process: 0,
-      mission_type: 0,
-    },
-    {
-      mission_name: "誰かの荷物をさりげなく手伝う",
-      mission_description:
-        "移動中や休憩時に、相手に気を遣わせない形で荷物運びや整理を手伝う。",
-      access: 1,
-      point: 160,
-      process: 0,
-      mission_type: 0,
-    },
-    {
-      mission_name: "旅のベスト瞬間を聞き出す",
-      mission_description:
-        "ミッションだと気づかれないように、参加者の誰かから今日一番よかった瞬間を聞き出す。",
-      access: 1,
-      point: 180,
-      process: 0,
-      mission_type: 0,
-    },
-    {
-      mission_name: "写真係を自然に引き受ける",
-      mission_description:
-        "集合写真や食事の写真など、誰かが撮りたいと思う場面で自然に撮影役を引き受ける。",
-      access: 1,
-      point: 170,
-      process: 0,
-      mission_type: 2,
-    },
-    {
-      mission_name: "次の目的地の豆知識を話す",
-      mission_description:
-        "移動中に、次の目的地や周辺に関する小さな豆知識を自然に会話へ混ぜる。",
-      access: 1,
-      point: 190,
-      process: 0,
-      mission_type: 0,
-    },
-  ];
-}
-
-function getDefaultSecretMissionDrafts(): MissionDraft[] {
-  return pickRandomMissionDrafts(getDefaultSecretMissionPool(), 2);
-}
-
 async function insertMissionDrafts(input: {
   trip: Trip;
   userId: string;
@@ -1076,22 +957,10 @@ export async function createMissionsForTripUser(input: {
 
   const commonDrafts = input.copyCommonFromOwner
     ? (await getCommonMissionsForTripOwner(input.trip)).map(missionToDraft)
-    : await getGeneratedCommonMissionDrafts(input.trip).catch((error) => {
-        console.warn(
-          "GPT mission generation failed. Falling back to fixed common missions.",
-          error,
-        );
-        return getDefaultCommonMissionDrafts();
-      });
+    : await getGeneratedCommonMissionDrafts(input.trip);
   const secretDrafts = await getGeneratedSecretMissionDrafts({
     trip: input.trip,
     userId: input.userId,
-  }).catch((error) => {
-    console.warn(
-      "GPT secret mission generation failed. Falling back to fixed secret missions.",
-      error,
-    );
-    return getDefaultSecretMissionDrafts();
   });
 
   if (input.copyCommonFromOwner && commonDrafts.length < COMMON_MISSION_COUNT) {
@@ -1105,17 +974,17 @@ export async function createMissionsForTripUser(input: {
     trip: input.trip,
     userId: input.userId,
     drafts: commonDrafts,
-    generationMode: input.copyCommonFromOwner ? "copy" : "fixed",
+    generationMode: input.copyCommonFromOwner ? "copy" : "gpt",
     generationSource: input.copyCommonFromOwner
       ? "owner_common_copy"
-      : "fixed_common_default",
+      : "gpt_common",
   });
   const secretMissions = await insertMissionDrafts({
     trip: input.trip,
     userId: input.userId,
     drafts: secretDrafts,
-    generationMode: "fixed",
-    generationSource: "fixed_secret_default",
+    generationMode: "gpt",
+    generationSource: "gpt_secret",
   });
 
   return {
