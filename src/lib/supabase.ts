@@ -728,49 +728,6 @@ function createMissionGroupId() {
   return crypto.randomUUID();
 }
 
-function getMissionGenerationSource(mission: Mission) {
-  const additional = parseMissionText(mission.additional);
-  const generationSource = additional.generation_source;
-
-  return typeof generationSource === "string" ? generationSource : null;
-}
-
-function hasOldCommonMissions(missions: Mission[]) {
-  const commonMissions = missions.filter((mission) => mission.access === 0);
-
-  if (commonMissions.length === 0) {
-    return false;
-  }
-
-  return commonMissions.some(
-    (mission) => getMissionGenerationSource(mission) !== "gpt_common",
-  );
-}
-
-function hasOldSecretMissions(missions: Mission[]) {
-  const secretMissions = missions.filter((mission) => mission.access === 1);
-
-  if (secretMissions.length === 0) {
-    return false;
-  }
-
-  return secretMissions.some(
-    (mission) => getMissionGenerationSource(mission) !== "gpt_secret",
-  );
-}
-
-function hasCompleteGeneratedMissionSet(missions: Mission[]) {
-  const commonCount = missions.filter((mission) => mission.access === 0).length;
-  const secretCount = missions.filter((mission) => mission.access === 1).length;
-
-  return (
-    commonCount >= COMMON_MISSION_COUNT &&
-    secretCount >= SECRET_MISSION_COUNT &&
-    !hasOldCommonMissions(missions) &&
-    !hasOldSecretMissions(missions)
-  );
-}
-
 function normalizeGeneratedMissionType(clearMethod: number): MissionType {
   if (clearMethod === 1) {
     return 1;
@@ -1110,14 +1067,7 @@ export async function createMissionsForTripUser(input: {
     userId: input.userId,
   });
 
-  if (existingMissions.length > 0 && existingMissions.some((mission) => mission.process === 2)) {
-    return {
-      created: false,
-      missions: existingMissions,
-    };
-  }
-
-  if (existingMissions.length > 0 && hasCompleteGeneratedMissionSet(existingMissions)) {
+  if (existingMissions.length > 0) {
     return {
       created: false,
       missions: existingMissions,
@@ -1198,25 +1148,6 @@ export async function listMissionsForUser(userId: string) {
     tripId: trip.id,
     userId,
   });
-
-  if (
-    trip.owner_user_id === userId &&
-    missions.length > 0 &&
-    (!hasCompleteGeneratedMissionSet(missions) || hasOldCommonMissions(missions) || hasOldSecretMissions(missions)) &&
-    !missions.some((mission) => mission.process === 2)
-  ) {
-    await deleteMissionsForUser(userId);
-    const regenerated = await createMissionsForTripUser({
-      trip,
-      userId,
-      copyCommonFromOwner: false,
-    });
-
-    return {
-      trip,
-      missions: regenerated.missions,
-    };
-  }
 
   return {
     trip,
