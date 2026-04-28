@@ -11,8 +11,8 @@ import {
   listMissionsForUser,
   type Mission,
   type MissionAccess,
-  type MissionProcess,
 } from "@/lib/supabase";
+import { buildCompetitionRanks } from "@/lib/ranking";
 
 function formatTripCode(tripCode: string) {
   return `${tripCode.slice(0, 3)}-${tripCode.slice(3, 6)}-${tripCode.slice(6, 9)}`;
@@ -20,14 +20,6 @@ function formatTripCode(tripCode: string) {
 
 function getAccessLabel(access: MissionAccess) {
   return access === 1 ? "極秘" : "共通";
-}
-
-function getProcessLabel(process: MissionProcess) {
-  if (process === 2) {
-    return "完了";
-  }
-
-  return "未完了";
 }
 
 function getMissionTypeLabel(mission: Mission) {
@@ -64,8 +56,11 @@ export default async function Home() {
     getRankingForUser(profile.id),
   ]);
   const ranking = rankingResult.ranking;
+  const rankingPositions = buildCompetitionRanks(ranking);
   const myRankingIndex = ranking.findIndex((user) => user.user_id === profile.id);
   const myRanking = myRankingIndex >= 0 ? ranking[myRankingIndex] : null;
+  const myRankingPosition =
+    myRankingIndex >= 0 ? rankingPositions[myRankingIndex] : null;
   const totalPoints = missions.reduce((sum, mission) => sum + mission.point, 0);
   const completedCount = missions.filter((mission) => mission.process === 2).length;
 
@@ -127,8 +122,8 @@ export default async function Home() {
               {trip ? myRanking?.points ?? 0 : "--"}
             </p>
             <p className="mt-1 text-sm text-[#665f50]">
-              {trip && myRankingIndex >= 0
-                ? `${myRankingIndex + 1}位 / ${ranking.length}人`
+              {trip && myRankingPosition
+                ? `${myRankingPosition}位 / ${ranking.length}人`
                 : "旅に参加すると表示"}
             </p>
           </div>
@@ -184,9 +179,6 @@ export default async function Home() {
                         <span className="rounded-md bg-[#edf1f6] px-2.5 py-1 text-xs font-bold text-[#53677b]">
                           {getMissionTypeLabel(mission)}
                         </span>
-                        <span className="rounded-md bg-[#f4f1e7] px-2.5 py-1 text-xs font-bold text-[#766b4f]">
-                          {getProcessLabel(mission.process)}
-                        </span>
                       </div>
                       <p className="mt-3 max-w-3xl text-sm leading-6 text-[#59645f]">
                         {mission.mission_description}
@@ -237,7 +229,7 @@ export default async function Home() {
                     }`}
                   >
                     <span className="flex h-10 w-10 items-center justify-center rounded-md bg-white text-base font-bold text-[#315f52]">
-                      {index + 1}
+                      {rankingPositions[index]}
                     </span>
                     <div>
                       <p className="font-bold">

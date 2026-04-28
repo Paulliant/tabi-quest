@@ -883,7 +883,7 @@ export async function getMissionsForTripUser(input: {
   userId: string;
 }) {
   const response = await supabaseRestFetch(
-    `mission?select=${getMissionSelectQuery()}&user_id=eq.${encodeURIComponent(input.userId)}&order=access.asc,id.asc`,
+    `mission?select=${getMissionSelectQuery()}&user_id=eq.${encodeURIComponent(input.userId)}&order=access.asc,mission_id.asc`,
     {},
     { useServiceRole: true },
   );
