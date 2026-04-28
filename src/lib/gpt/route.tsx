@@ -207,61 +207,9 @@ async function readInputFromRequest(request: Request) {
 	return normalizeTextCandidate(parseJsonLike(fallbackText));
 }
 
-function validateMission(value: unknown): GeneratedMission {
-	if (!isRecord(value)) {
-		throw new Error("GPT の応答が JSON オブジェクトではありませんでした。");
-	}
-
-	const additional = value.additional;
-
-	if (
-		typeof value.missionName !== "string" ||
-		typeof value.description !== "string" ||
-		typeof value.type1 !== "string" ||
-		typeof value.type2 !== "string" ||
-		typeof value.points !== "number" ||
-		!Array.isArray(additional) ||
-		additional.length !== 3 ||
-		additional.some((item) => typeof item !== "string")
-	) {
-		throw new Error("GPT の応答形式が期待値と一致しませんでした。");
-	}
-
-	return {
-		missionName: value.missionName,
-		description: value.description,
-		type1: value.type1,
-		points: value.points,
-		type2: value.type2,
-		additional: additional as [string, string, string],
-	};
-}
-
-function validateMissionResponse(value: unknown): GeneratedMissionResponse {
-	if (Array.isArray(value)) {
-		return {
-			missions: value.map((item) => validateMission(item)),
-		};
-	}
-
-	if (!isRecord(value)) {
-		throw new Error("GPT の応答が JSON オブジェクトではありませんでした。");
-	}
-
-	const missions = value.missions;
-
-	if (!Array.isArray(missions) || missions.length === 0) {
-		throw new Error("GPT の応答に missions 配列がありませんでした。");
-	}
-
-	return {
-		missions: missions.map((item) => validateMission(item)),
-	};
-}
-
 async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 	const apiKey = getOpenAIApiKey();
-	const missionCount = 3;
+	const missionCount = normalizeMissionCount(input.missionCount);
 
 	if (!apiKey) {
 		throw new Error(".openai.key か OPENAI_API_KEY が設定されていません。");

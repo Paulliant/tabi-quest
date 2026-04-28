@@ -108,6 +108,8 @@ type MissionDraft = {
   mission_type: MissionType;
   extra_data?: JsonObject | string | null;
   additional?: JsonObject | string | null;
+  generation_mode?: "fixed" | "gpt" | "copy";
+  generation_source?: string;
 };
 
 const COMMON_MISSION_COUNT = 3;
@@ -218,6 +220,14 @@ function parseMissionText(value: string | null) {
   } catch {
     return {};
   }
+}
+
+function normalizeMissionTextObject(value: JsonObject | string | null | undefined) {
+  if (typeof value === "string") {
+    return parseMissionText(value);
+  }
+
+  return normalizeJsonObject(value);
 }
 
 function requireUserId(user: AuthUser | null | undefined, message: string) {
@@ -777,7 +787,6 @@ async function getGeneratedCommonMissionDrafts(trip: Trip) {
       process: 0 as MissionProcess,
       mission_type: normalizeGeneratedMissionType(clearMethod),
       extra_data: {
-        generation_mode: "gpt_common",
         generated_type: mission.type1,
       },
       additional: {
@@ -785,6 +794,8 @@ async function getGeneratedCommonMissionDrafts(trip: Trip) {
         generation_source: "gpt_common",
         trip_id: trip.id,
       },
+      generation_mode: "gpt",
+      generation_source: "gpt_common",
     } satisfies MissionDraft;
   });
 
@@ -918,25 +929,41 @@ async function insertMissionDrafts(input: {
   trip: Trip;
   userId: string;
   drafts: MissionDraft[];
+  generationMode?: "fixed" | "gpt" | "copy";
   generationSource: string;
 }) {
-  const rows = input.drafts.map((draft) => ({
-    mission_id: draft.mission_id ?? createMissionGroupId(),
-    mission_name: draft.mission_name.trim(),
-    mission_description: draft.mission_description.trim(),
-    access: draft.access,
-    point: draft.point,
-    user_id: input.userId,
-    process: draft.process,
-    mission_type: draft.mission_type,
-    extra_data: stringifyMissionText(draft.extra_data),
-    additional: stringifyMissionText({
-      ...normalizeJsonObject(draft.additional),
-      generation_mode: "fixed",
-      generation_source: input.generationSource,
-      trip_id: input.trip.id,
-    }),
-  }));
+  const rows = input.drafts.map((draft) => {
+    const additional = normalizeMissionTextObject(draft.additional);
+    const generationMode =
+      draft.generation_mode ??
+      (typeof additional.generation_mode === "string"
+        ? additional.generation_mode
+        : input.generationMode) ??
+      "fixed";
+    const generationSource =
+      draft.generation_source ??
+      (typeof additional.generation_source === "string"
+        ? additional.generation_source
+        : input.generationSource);
+
+    return {
+      mission_id: draft.mission_id ?? createMissionGroupId(),
+      mission_name: draft.mission_name.trim(),
+      mission_description: draft.mission_description.trim(),
+      access: draft.access,
+      point: draft.point,
+      user_id: input.userId,
+      process: draft.process,
+      mission_type: draft.mission_type,
+      extra_data: stringifyMissionText(draft.extra_data),
+      additional: stringifyMissionText({
+        ...additional,
+        generation_mode: generationMode,
+        generation_source: generationSource,
+        trip_id: input.trip.id,
+      }),
+    };
+  });
 
   const response = await supabaseRestFetch(
     "mission",
@@ -966,7 +993,12 @@ function missionToDraft(mission: Mission): MissionDraft {
     process: 0,
     mission_type: mission.mission_type,
     extra_data: mission.extra_data,
-    additional: mission.additional,
+    additional: {
+      ...parseMissionText(mission.additional),
+      copied_from_mission_row_id: mission.id,
+    },
+    generation_mode: "copy",
+    generation_source: "owner_common_copy",
   };
 }
 
@@ -1015,9 +1047,13 @@ export async function createMissionsForTripUser(input: {
 
   const commonDrafts = input.copyCommonFromOwner
     ? (await getCommonMissionsForTripOwner(input.trip)).map(missionToDraft)
-    : await getGeneratedCommonMissionDrafts(input.trip).catch(() =>
-        getDefaultCommonMissionDrafts(),
-      );
+    : await getGeneratedCommonMissionDrafts(input.trip).catch((error) => {
+        console.warn(
+          "GPT mission generation failed. Falling back to fixed common missions.",
+          error,
+        );
+        return getDefaultCommonMissionDrafts();
+      });
   const secretDrafts = getDefaultSecretMissionDrafts();
 
   if (input.copyCommonFromOwner && commonDrafts.length < COMMON_MISSION_COUNT) {
@@ -1031,6 +1067,7 @@ export async function createMissionsForTripUser(input: {
     trip: input.trip,
     userId: input.userId,
     drafts: commonDrafts,
+    generationMode: input.copyCommonFromOwner ? "copy" : "fixed",
     generationSource: input.copyCommonFromOwner
       ? "owner_common_copy"
       : "fixed_common_default",
@@ -1039,6 +1076,7 @@ export async function createMissionsForTripUser(input: {
     trip: input.trip,
     userId: input.userId,
     drafts: secretDrafts,
+    generationMode: "fixed",
     generationSource: "fixed_secret_default",
   });
 
