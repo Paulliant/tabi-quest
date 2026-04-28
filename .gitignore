@@ -42,3 +42,6 @@ next-env.d.ts
 .env*.local
 
 docs
+
+# api keys
+/src/lib/gpt/.openai.key
