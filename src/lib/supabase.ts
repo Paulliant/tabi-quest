@@ -2,6 +2,8 @@ import "server-only";
 
 import { cookies } from "next/headers";
 
+import { generateMissionFromTravelInput } from "@/lib/gpt/route";
+
 const supabaseUrl =
   process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey =
@@ -107,6 +109,8 @@ type MissionDraft = {
   extra_data?: JsonObject | string | null;
   additional?: JsonObject | string | null;
 };
+
+const COMMON_MISSION_COUNT = 3;
 
 export class ApiError extends Error {
   status: number;
@@ -713,6 +717,84 @@ function createMissionGroupId() {
   return crypto.randomUUID();
 }
 
+function getMissionGenerationSource(mission: Mission) {
+  const additional = parseMissionText(mission.additional);
+  const generationSource = additional.generation_source;
+
+  return typeof generationSource === "string" ? generationSource : null;
+}
+
+function hasOldCommonMissions(missions: Mission[]) {
+  const commonMissions = missions.filter((mission) => mission.access === 0);
+
+  if (commonMissions.length === 0) {
+    return false;
+  }
+
+  return commonMissions.some(
+    (mission) => getMissionGenerationSource(mission) !== "gpt_common",
+  );
+}
+
+function normalizeGeneratedMissionType(clearMethod: number): MissionType {
+  if (clearMethod === 1) {
+    return 1;
+  }
+
+  if (clearMethod === 2) {
+    return 2;
+  }
+
+  if (clearMethod === 3) {
+    return 3;
+  }
+
+  return 0;
+}
+
+function normalizeGeneratedPoint(point: number) {
+  const allowedPoints = [10, 20, 30, 40, 50];
+
+  return allowedPoints.includes(point) ? point : 20;
+}
+
+async function getGeneratedCommonMissionDrafts(trip: Trip) {
+  const result = await generateMissionFromTravelInput({
+    tripTitle: trip.trip_name,
+    travelNotes: trip.trip_description,
+    missionCount: COMMON_MISSION_COUNT,
+  });
+
+  const drafts = result.missions.slice(0, COMMON_MISSION_COUNT).map((mission) => {
+    const clearMethod = Number(mission.additional[0]);
+
+    return {
+      mission_id: createMissionGroupId(),
+      mission_name: mission.missionName,
+      mission_description: mission.description,
+      access: 0 as MissionAccess,
+      point: normalizeGeneratedPoint(mission.points),
+      process: 0 as MissionProcess,
+      mission_type: normalizeGeneratedMissionType(clearMethod),
+      extra_data: {
+        generation_mode: "gpt_common",
+        generated_type: mission.type1,
+      },
+      additional: {
+        clear_method: Number.isFinite(clearMethod) ? clearMethod : 0,
+        generation_source: "gpt_common",
+        trip_id: trip.id,
+      },
+    } satisfies MissionDraft;
+  });
+
+  if (drafts.length < COMMON_MISSION_COUNT) {
+    throw new ApiError("GPT から十分な数の共通ミッションを生成できませんでした。", 500);
+  }
+
+  return drafts;
+}
+
 function pickRandomMissionDrafts(drafts: MissionDraft[], count: number) {
   return [...drafts]
     .sort(() => Math.random() - 0.5)
@@ -744,6 +826,16 @@ function getDefaultCommonMissionDrafts(): MissionDraft[] {
         "店員さんや地元の人におすすめを聞き、次の行き先や食べ物の参考にする。",
       access: 0,
       point: 120,
+      process: 0,
+      mission_type: 0,
+    },
+    {
+      mission_id: createMissionGroupId(),
+      mission_name: "全員で旅の感想を一言共有する",
+      mission_description:
+        "休憩や移動のタイミングで、今の旅で印象に残ったことを一人ずつ共有する。",
+      access: 0,
+      point: 110,
       process: 0,
       mission_type: 0,
     },
@@ -899,7 +991,9 @@ async function getCommonMissionsForTripOwner(trip: Trip) {
     userId: trip.owner_user_id,
   });
 
-  return missions.filter((mission) => mission.access === 0).slice(0, 2);
+  return missions
+    .filter((mission) => mission.access === 0)
+    .slice(0, COMMON_MISSION_COUNT);
 }
 
 export async function createMissionsForTripUser(input: {
@@ -921,10 +1015,12 @@ export async function createMissionsForTripUser(input: {
 
   const commonDrafts = input.copyCommonFromOwner
     ? (await getCommonMissionsForTripOwner(input.trip)).map(missionToDraft)
-    : getDefaultCommonMissionDrafts();
+    : await getGeneratedCommonMissionDrafts(input.trip).catch(() =>
+        getDefaultCommonMissionDrafts(),
+      );
   const secretDrafts = getDefaultSecretMissionDrafts();
 
-  if (input.copyCommonFromOwner && commonDrafts.length < 2) {
+  if (input.copyCommonFromOwner && commonDrafts.length < COMMON_MISSION_COUNT) {
     throw new ApiError(
       "コピー元の共通ミッションが不足しています。先にオーナーのミッションを作成してください。",
       409,
@@ -976,6 +1072,25 @@ export async function listMissionsForUser(userId: string) {
     tripId: trip.id,
     userId,
   });
+
+  if (
+    trip.owner_user_id === userId &&
+    missions.length > 0 &&
+    hasOldCommonMissions(missions) &&
+    !missions.some((mission) => mission.process === 2)
+  ) {
+    await deleteMissionsForUser(userId);
+    const regenerated = await createMissionsForTripUser({
+      trip,
+      userId,
+      copyCommonFromOwner: false,
+    });
+
+    return {
+      trip,
+      missions: regenerated.missions,
+    };
+  }
 
   return {
     trip,
