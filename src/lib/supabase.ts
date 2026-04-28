@@ -29,6 +29,40 @@ export type Trip = {
   updated_at: string;
 };
 
+export type MissionAccess = 0 | 1;
+export type MissionProcess = 0 | 1 | 2;
+export type MissionType = 0 | 1 | 2 | 3;
+type JsonObject = Record<string, unknown>;
+
+export type Mission = {
+  id: number;
+  mission_id: string;
+  mission_name: string;
+  mission_description: string;
+  access: MissionAccess;
+  point: number;
+  user_id: string;
+  process: MissionProcess;
+  mission_type: MissionType;
+  extra_data: string | null;
+  additional: string | null;
+  created_at: string;
+};
+
+export type MissionGenerationResult = {
+  created: boolean;
+  missions: Mission[];
+};
+
+export type RankingEntry = {
+  user_id: string;
+  username: string;
+  display_name: string;
+  points: number;
+  completed_missions: number;
+  is_me: boolean;
+};
+
 type UserTrip = {
   user_id: string;
   trip_id: string;
@@ -60,6 +94,18 @@ type AuthSession = {
 
 type CreateUserResponse = {
   user: AuthUser;
+};
+
+type MissionDraft = {
+  mission_id?: string;
+  mission_name: string;
+  mission_description: string;
+  access: MissionAccess;
+  point: number;
+  process: MissionProcess;
+  mission_type: MissionType;
+  extra_data?: JsonObject | string | null;
+  additional?: JsonObject | string | null;
 };
 
 export class ApiError extends Error {
@@ -135,6 +181,39 @@ export function usernameToEmail(username: string) {
 
 function normalizeTripCode(tripCode: string) {
   return tripCode.replace(/[\s-]/g, "");
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeJsonObject(value: unknown, fallback: JsonObject = {}) {
+  return isJsonObject(value) ? value : fallback;
+}
+
+function stringifyMissionText(value: unknown) {
+  if (value === null || typeof value === "undefined") {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return JSON.stringify(normalizeJsonObject(value));
+}
+
+function parseMissionText(value: string | null) {
+  if (!value) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return normalizeJsonObject(parsed);
+  } catch {
+    return {};
+  }
 }
 
 function requireUserId(user: AuthUser | null | undefined, message: string) {
@@ -540,6 +619,18 @@ async function removeUserFromTrip(userId: string, tripId: string) {
   await ensureResponseOk(response, "trip からの退出に失敗しました。");
 }
 
+async function deleteMissionsForUser(userId: string) {
+  const response = await supabaseRestFetch(
+    `mission?user_id=eq.${encodeURIComponent(userId)}`,
+    {
+      method: "DELETE",
+    },
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "ミッションの削除に失敗しました。");
+}
+
 async function markSettlementPendingForTrip(tripId: string) {
   const response = await supabaseRestFetch(
     `user_trips?trip_id=eq.${encodeURIComponent(tripId)}`,
@@ -601,6 +692,473 @@ async function generateUniqueTripCode() {
   throw new ApiError("利用可能な旅 ID を生成できませんでした。", 500);
 }
 
+function getMissionSelectQuery() {
+  return [
+    "id",
+    "mission_id",
+    "mission_name",
+    "mission_description",
+    "access",
+    "point",
+    "user_id",
+    "process",
+    "mission_type",
+    "extra_data",
+    "additional",
+    "created_at",
+  ].join(",");
+}
+
+function createMissionGroupId() {
+  return crypto.randomUUID();
+}
+
+function pickRandomMissionDrafts(drafts: MissionDraft[], count: number) {
+  return [...drafts]
+    .sort(() => Math.random() - 0.5)
+    .slice(0, count)
+    .map((draft) => ({
+      ...draft,
+      mission_id: draft.mission_id ?? createMissionGroupId(),
+      extra_data: draft.extra_data,
+      additional: draft.additional,
+    }));
+}
+
+function getDefaultCommonMissionDrafts(): MissionDraft[] {
+  return [
+    {
+      mission_id: createMissionGroupId(),
+      mission_name: "旅先らしい写真を撮る",
+      mission_description:
+        "旅先の雰囲気が伝わる写真を撮って、グループ内で共有する。",
+      access: 0,
+      point: 100,
+      process: 0,
+      mission_type: 2,
+    },
+    {
+      mission_id: createMissionGroupId(),
+      mission_name: "地元のおすすめを聞く",
+      mission_description:
+        "店員さんや地元の人におすすめを聞き、次の行き先や食べ物の参考にする。",
+      access: 0,
+      point: 120,
+      process: 0,
+      mission_type: 0,
+    },
+  ];
+}
+
+function getDefaultSecretMissionPool(): MissionDraft[] {
+  return [
+    {
+      mission_name: "仲間を自然に褒める",
+      mission_description:
+        "自分のミッションだと気づかれないように、旅の途中で仲間を一度褒める。",
+      access: 1,
+      point: 200,
+      process: 0,
+      mission_type: 0,
+    },
+    {
+      mission_name: "予定にない寄り道を提案する",
+      mission_description:
+        "安全な範囲で、予定にない道や店を一つ提案する。採用されたら達成。",
+      access: 1,
+      point: 220,
+      process: 0,
+      mission_type: 1,
+    },
+    {
+      mission_name: "旅先の小さな発見を共有する",
+      mission_description:
+        "看板、景色、音、匂いなど、気づいた小さな発見を自然に話題にする。",
+      access: 1,
+      point: 180,
+      process: 0,
+      mission_type: 0,
+    },
+    {
+      mission_name: "誰かの荷物をさりげなく手伝う",
+      mission_description:
+        "移動中や休憩時に、相手に気を遣わせない形で荷物運びや整理を手伝う。",
+      access: 1,
+      point: 160,
+      process: 0,
+      mission_type: 0,
+    },
+    {
+      mission_name: "旅のベスト瞬間を聞き出す",
+      mission_description:
+        "ミッションだと気づかれないように、参加者の誰かから今日一番よかった瞬間を聞き出す。",
+      access: 1,
+      point: 180,
+      process: 0,
+      mission_type: 0,
+    },
+    {
+      mission_name: "写真係を自然に引き受ける",
+      mission_description:
+        "集合写真や食事の写真など、誰かが撮りたいと思う場面で自然に撮影役を引き受ける。",
+      access: 1,
+      point: 170,
+      process: 0,
+      mission_type: 2,
+    },
+    {
+      mission_name: "次の目的地の豆知識を話す",
+      mission_description:
+        "移動中に、次の目的地や周辺に関する小さな豆知識を自然に会話へ混ぜる。",
+      access: 1,
+      point: 190,
+      process: 0,
+      mission_type: 0,
+    },
+  ];
+}
+
+function getDefaultSecretMissionDrafts(): MissionDraft[] {
+  return pickRandomMissionDrafts(getDefaultSecretMissionPool(), 2);
+}
+
+async function insertMissionDrafts(input: {
+  trip: Trip;
+  userId: string;
+  drafts: MissionDraft[];
+  generationSource: string;
+}) {
+  const rows = input.drafts.map((draft) => ({
+    mission_id: draft.mission_id ?? createMissionGroupId(),
+    mission_name: draft.mission_name.trim(),
+    mission_description: draft.mission_description.trim(),
+    access: draft.access,
+    point: draft.point,
+    user_id: input.userId,
+    process: draft.process,
+    mission_type: draft.mission_type,
+    extra_data: stringifyMissionText(draft.extra_data),
+    additional: stringifyMissionText({
+      ...normalizeJsonObject(draft.additional),
+      generation_mode: "fixed",
+      generation_source: input.generationSource,
+      trip_id: input.trip.id,
+    }),
+  }));
+
+  const response = await supabaseRestFetch(
+    "mission",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify(rows),
+    },
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "ミッションの作成に失敗しました。");
+
+  return (await response.json()) as Mission[];
+}
+
+function missionToDraft(mission: Mission): MissionDraft {
+  return {
+    mission_id: mission.mission_id,
+    mission_name: mission.mission_name,
+    mission_description: mission.mission_description,
+    access: mission.access,
+    point: mission.point,
+    process: 0,
+    mission_type: mission.mission_type,
+    extra_data: mission.extra_data,
+    additional: mission.additional,
+  };
+}
+
+export async function getMissionsForTripUser(input: {
+  tripId: string;
+  userId: string;
+}) {
+  const response = await supabaseRestFetch(
+    `mission?select=${getMissionSelectQuery()}&user_id=eq.${encodeURIComponent(input.userId)}&order=access.asc,id.asc`,
+    {},
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "ミッション一覧の取得に失敗しました。");
+
+  return (await response.json()) as Mission[];
+}
+
+async function getCommonMissionsForTripOwner(trip: Trip) {
+  const missions = await getMissionsForTripUser({
+    tripId: trip.id,
+    userId: trip.owner_user_id,
+  });
+
+  return missions.filter((mission) => mission.access === 0).slice(0, 2);
+}
+
+export async function createMissionsForTripUser(input: {
+  trip: Trip;
+  userId: string;
+  copyCommonFromOwner?: boolean;
+}): Promise<MissionGenerationResult> {
+  const existingMissions = await getMissionsForTripUser({
+    tripId: input.trip.id,
+    userId: input.userId,
+  });
+
+  if (existingMissions.length > 0) {
+    return {
+      created: false,
+      missions: existingMissions,
+    };
+  }
+
+  const commonDrafts = input.copyCommonFromOwner
+    ? (await getCommonMissionsForTripOwner(input.trip)).map(missionToDraft)
+    : getDefaultCommonMissionDrafts();
+  const secretDrafts = getDefaultSecretMissionDrafts();
+
+  if (input.copyCommonFromOwner && commonDrafts.length < 2) {
+    throw new ApiError(
+      "コピー元の共通ミッションが不足しています。先にオーナーのミッションを作成してください。",
+      409,
+    );
+  }
+
+  const commonMissions = await insertMissionDrafts({
+    trip: input.trip,
+    userId: input.userId,
+    drafts: commonDrafts,
+    generationSource: input.copyCommonFromOwner
+      ? "owner_common_copy"
+      : "fixed_common_default",
+  });
+  const secretMissions = await insertMissionDrafts({
+    trip: input.trip,
+    userId: input.userId,
+    drafts: secretDrafts,
+    generationSource: "fixed_secret_default",
+  });
+
+  return {
+    created: true,
+    missions: [...commonMissions, ...secretMissions],
+  };
+}
+
+export async function ensureMissionsForTripUser(input: {
+  trip: Trip;
+  userId: string;
+}) {
+  return createMissionsForTripUser({
+    ...input,
+    copyCommonFromOwner: input.userId !== input.trip.owner_user_id,
+  });
+}
+
+export async function listMissionsForUser(userId: string) {
+  const trip = await getTripForUser(userId);
+
+  if (!trip) {
+    return {
+      trip: null,
+      missions: [],
+    };
+  }
+
+  const missions = await getMissionsForTripUser({
+    tripId: trip.id,
+    userId,
+  });
+
+  return {
+    trip,
+    missions,
+  };
+}
+
+export async function completeMissionForUser(input: {
+  userId: string;
+  missionId: string;
+  extraData?: unknown;
+  additional?: unknown;
+}) {
+  const response = await supabaseRestFetch(
+    `mission?select=${getMissionSelectQuery()}&id=eq.${encodeURIComponent(input.missionId)}&limit=1`,
+    {},
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "ミッションの取得に失敗しました。");
+
+  const rows = (await response.json()) as Mission[];
+  const mission = rows[0];
+
+  if (!mission) {
+    throw new ApiError("指定されたミッションが見つかりません。", 404);
+  }
+
+  const trip = await getTripForUser(input.userId);
+
+  if (!trip || mission.user_id !== input.userId) {
+    throw new ApiError("このミッションを更新する権限がありません。", 403);
+  }
+
+  if (mission.process === 2) {
+    throw new ApiError("このミッションはすでに完了しています。", 409);
+  }
+
+  const updateResponse = await supabaseRestFetch(
+    `mission?id=eq.${encodeURIComponent(String(mission.id))}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify({
+        process: 2,
+        extra_data: stringifyMissionText(input.extraData ?? mission.extra_data),
+        additional: stringifyMissionText({
+          ...parseMissionText(mission.additional),
+          ...normalizeJsonObject(input.additional),
+          completed_by: input.userId,
+          completed_at: new Date().toISOString(),
+        }),
+      }),
+    },
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(updateResponse, "ミッションの更新に失敗しました。");
+
+  const updatedRows = (await updateResponse.json()) as Mission[];
+  const updatedMission = updatedRows[0];
+
+  if (!updatedMission) {
+    throw new ApiError("更新したミッションを取得できませんでした。", 500);
+  }
+
+  return updatedMission;
+}
+
+export async function voteMissionForUser(_input: {
+  userId: string;
+  missionId: string;
+  approved: boolean;
+}) {
+  void _input;
+  throw new ApiError(
+    "現在は投票ではなく完了ボタンでミッションを完了してください。",
+    400,
+  );
+}
+
+async function getTripMemberships(tripId: string) {
+  const response = await supabaseRestFetch(
+    `user_trips?select=user_id,trip_id,settlement_pending,created_at&trip_id=eq.${encodeURIComponent(tripId)}&order=created_at.asc`,
+    {},
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "trip メンバーの取得に失敗しました。");
+
+  return (await response.json()) as UserTrip[];
+}
+
+export async function getRankingForUser(userId: string) {
+  const trip = await getTripForUser(userId);
+
+  if (!trip) {
+    return {
+      trip: null,
+      ranking: [],
+    };
+  }
+
+  const memberships = await getTripMemberships(trip.id);
+  const activeMemberships = memberships.filter(
+    (membership) => !membership.settlement_pending,
+  );
+  const activeUserIds = activeMemberships.map((membership) => membership.user_id);
+  const completedMissionsResponse =
+    activeUserIds.length > 0
+      ? await supabaseRestFetch(
+          `mission?select=id,user_id,point,process&user_id=in.(${activeUserIds.map(encodeURIComponent).join(",")})&process=eq.2`,
+          {},
+          { useServiceRole: true },
+        )
+      : null;
+
+  if (completedMissionsResponse) {
+    await ensureResponseOk(
+      completedMissionsResponse,
+      "ランキング対象ミッションの取得に失敗しました。",
+    );
+  }
+
+  const completedMissions = completedMissionsResponse
+    ? ((await completedMissionsResponse.json()) as Array<{
+        id: number;
+        user_id: string;
+        point: number;
+      }>)
+    : [];
+  const scores = new Map<
+    string,
+    {
+      points: number;
+      completedMissions: number;
+    }
+  >();
+
+  for (const mission of completedMissions) {
+    const current = scores.get(mission.user_id) ?? {
+      points: 0,
+      completedMissions: 0,
+    };
+
+    scores.set(mission.user_id, {
+      points: current.points + mission.point,
+      completedMissions: current.completedMissions + 1,
+    });
+  }
+
+  const profiles = await Promise.all(
+    activeMemberships.map((membership) => getProfileById(membership.user_id)),
+  );
+  const ranking = profiles
+    .map((profile) => {
+      const score = scores.get(profile.id) ?? {
+        points: 0,
+        completedMissions: 0,
+      };
+
+      return {
+        user_id: profile.id,
+        username: profile.username,
+        display_name: profile.display_name,
+        points: score.points,
+        completed_missions: score.completedMissions,
+        is_me: profile.id === userId,
+      } satisfies RankingEntry;
+    })
+    .sort(
+      (a, b) => b.points - a.points || a.display_name.localeCompare(b.display_name),
+    );
+
+  return {
+    trip,
+    ranking,
+  };
+}
+
 export async function createTripForUser(input: {
   userId: string;
   tripName: string;
@@ -654,7 +1212,18 @@ export async function createTripForUser(input: {
 
   try {
     await addUserToTrip(input.userId, trip.id);
+    const missionGeneration = await createMissionsForTripUser({
+      trip,
+      userId: input.userId,
+      copyCommonFromOwner: false,
+    });
+
+    return {
+      trip,
+      missionGeneration,
+    };
   } catch (error) {
+    await deleteMissionsForUser(input.userId);
     const rollbackResponse = await supabaseRestFetch(
       `trips?id=eq.${encodeURIComponent(trip.id)}`,
       {
@@ -666,8 +1235,6 @@ export async function createTripForUser(input: {
     await ensureResponseOk(rollbackResponse, "trip のロールバックに失敗しました。");
     throw error;
   }
-
-  return trip;
 }
 
 export async function joinTripForUser(input: {
@@ -689,7 +1256,22 @@ export async function joinTripForUser(input: {
   const trip = await getTripByCode(tripCode);
   await addUserToTrip(input.userId, trip.id);
 
-  return trip;
+  try {
+    const missionGeneration = await createMissionsForTripUser({
+      trip,
+      userId: input.userId,
+      copyCommonFromOwner: true,
+    });
+
+    return {
+      trip,
+      missionGeneration,
+    };
+  } catch (error) {
+    await deleteMissionsForUser(input.userId);
+    await removeUserFromTrip(input.userId, trip.id);
+    throw error;
+  }
 }
 
 export async function leaveOrEndTripForUser(input: {
@@ -759,6 +1341,7 @@ export async function completeSettlementForUser(input: {
     throw new ApiError("この trip はまだ結算対象ではありません。", 409);
   }
 
+  await deleteMissionsForUser(input.userId);
   await removeUserFromTrip(input.userId, input.tripId);
 }
 
@@ -780,6 +1363,16 @@ export async function getCurrentProfileFromCookies() {
   } catch {
     return null;
   }
+}
+
+export async function requireCurrentProfileFromCookies() {
+  const profile = await getCurrentProfileFromCookies();
+
+  if (!profile) {
+    throw new ApiError("ログインしていません。", 401);
+  }
+
+  return profile;
 }
 
 export async function getCurrentTripFromCookies() {

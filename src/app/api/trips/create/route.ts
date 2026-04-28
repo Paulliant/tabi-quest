@@ -26,13 +26,13 @@ export async function POST(request: Request) {
       tripDescription?: string;
     };
 
-    const trip = await createTripForUser({
+    const result = await createTripForUser({
       userId: profile.id,
       tripName: body.tripName ?? "",
       tripDescription: body.tripDescription ?? "",
     });
 
-    return NextResponse.json({ trip });
+    return NextResponse.json(result);
   } catch (error) {
     const status = error instanceof ApiError ? error.status : 500;
     const message =

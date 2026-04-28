@@ -25,12 +25,12 @@ export async function POST(request: Request) {
       tripCode?: string;
     };
 
-    const trip = await joinTripForUser({
+    const result = await joinTripForUser({
       userId: profile.id,
       tripCode: body.tripCode ?? "",
     });
 
-    return NextResponse.json({ trip });
+    return NextResponse.json(result);
   } catch (error) {
     const status = error instanceof ApiError ? error.status : 500;
     const message =
