@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { generateMissionFromTravelInput } from "@/lib/gpt/route";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 async function readInputFromRequest(request: Request) {
 	const contentType = request.headers.get("content-type") ?? "";

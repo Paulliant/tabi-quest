@@ -7,6 +7,8 @@ import {
   requireCurrentProfileFromCookies,
 } from "@/lib/supabase";
 
+export const maxDuration = 60;
+
 export async function POST() {
   try {
     const profile = await requireCurrentProfileFromCookies();

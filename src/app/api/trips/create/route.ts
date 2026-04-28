@@ -8,6 +8,8 @@ import {
   getCurrentProfileFromAccessToken,
 } from "@/lib/supabase";
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   try {
     const cookieStore = await cookies();
