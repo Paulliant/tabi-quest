@@ -4,9 +4,9 @@ import { NextResponse } from "next/server";
 import {
   accessTokenCookieName,
   ApiError,
+  completeSettlementForUser,
   getCurrentProfileFromAccessToken,
-  getTripForUser,
-  leaveOrEndTripForUser,
+  getPendingSettlementForUser,
 } from "@/lib/supabase";
 
 export async function POST() {
@@ -22,27 +22,25 @@ export async function POST() {
     }
 
     const profile = await getCurrentProfileFromAccessToken(accessToken);
-    const trip = await getTripForUser(profile.id);
+    const pendingSettlement = await getPendingSettlementForUser(profile.id);
 
-    if (!trip) {
+    if (!pendingSettlement) {
       return NextResponse.json(
-        { error: "進行中の trip がありません。" },
+        { error: "結算対象の trip がありません。" },
         { status: 404 },
       );
     }
 
-    const result = await leaveOrEndTripForUser({
+    await completeSettlementForUser({
       userId: profile.id,
-      tripId: trip.id,
+      tripId: pendingSettlement.trip.id,
     });
 
-    return NextResponse.json(result);
+    return NextResponse.json({ ok: true });
   } catch (error) {
     const status = error instanceof ApiError ? error.status : 500;
     const message =
-      error instanceof Error
-        ? error.message
-        : "trip の退出処理に失敗しました。";
+      error instanceof Error ? error.message : "結算の完了に失敗しました。";
 
     return NextResponse.json({ error: message }, { status });
   }

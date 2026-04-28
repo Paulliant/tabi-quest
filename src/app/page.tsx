@@ -5,6 +5,7 @@ import LogoutButton from "@/components/logout-button";
 import TripEntryPanel from "@/components/trip-entry-panel";
 import {
   getCurrentProfileFromCookies,
+  getPendingSettlementForUser,
   getTripForUser,
 } from "@/lib/supabase";
 
@@ -67,6 +68,12 @@ export default async function Home() {
 
   if (!profile) {
     redirect("/login");
+  }
+
+  const pendingSettlement = await getPendingSettlementForUser(profile.id);
+
+  if (pendingSettlement) {
+    redirect("/settlement");
   }
 
   const trip = await getTripForUser(profile.id);

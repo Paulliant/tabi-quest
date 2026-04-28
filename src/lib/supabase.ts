@@ -32,7 +32,18 @@ export type Trip = {
 type UserTrip = {
   user_id: string;
   trip_id: string;
+  settlement_pending: boolean;
   created_at: string;
+};
+
+export type PendingSettlement = {
+  membership: UserTrip;
+  trip: Trip;
+};
+
+type TripMembership = {
+  membership: UserTrip;
+  trip: Trip;
 };
 
 type AuthUser = {
@@ -431,9 +442,19 @@ export async function getTripByCode(tripCode: string) {
   return trip;
 }
 
-export async function getTripForUser(userId: string) {
+async function getTripMembershipForUser(
+  userId: string,
+  options?: {
+    settlementPending?: boolean;
+  },
+) {
+  const settlementFilter =
+    typeof options?.settlementPending === "boolean"
+      ? `&settlement_pending=eq.${options.settlementPending}`
+      : "";
+
   const membershipResponse = await supabaseRestFetch(
-    `user_trips?select=user_id,trip_id,created_at&user_id=eq.${encodeURIComponent(userId)}&order=created_at.asc&limit=1`,
+    `user_trips?select=user_id,trip_id,settlement_pending,created_at&user_id=eq.${encodeURIComponent(userId)}${settlementFilter}&order=created_at.asc&limit=1`,
     {},
     { useServiceRole: true },
   );
@@ -450,7 +471,37 @@ export async function getTripForUser(userId: string) {
     return null;
   }
 
-  return getTripById(membership.trip_id);
+  const trip = await getTripById(membership.trip_id);
+
+  return {
+    membership,
+    trip,
+  } satisfies TripMembership;
+}
+
+export async function getTripForUser(userId: string) {
+  const activeMembership = await getTripMembershipForUser(userId, {
+    settlementPending: false,
+  });
+
+  return activeMembership?.trip ?? null;
+}
+
+async function getAnyTripForUser(userId: string) {
+  const membership = await getTripMembershipForUser(userId);
+  return membership?.trip ?? null;
+}
+
+export async function getPendingSettlementForUser(userId: string) {
+  const membership = await getTripMembershipForUser(userId, {
+    settlementPending: true,
+  });
+
+  if (!membership) {
+    return null;
+  }
+
+  return membership satisfies PendingSettlement;
 }
 
 async function addUserToTrip(userId: string, tripId: string) {
@@ -465,6 +516,7 @@ async function addUserToTrip(userId: string, tripId: string) {
       body: JSON.stringify({
         user_id: userId,
         trip_id: tripId,
+        settlement_pending: false,
       }),
     },
     { useServiceRole: true },
@@ -488,16 +540,40 @@ async function removeUserFromTrip(userId: string, tripId: string) {
   await ensureResponseOk(response, "trip からの退出に失敗しました。");
 }
 
-async function deleteTripById(tripId: string) {
+async function markSettlementPendingForTrip(tripId: string) {
   const response = await supabaseRestFetch(
-    `trips?id=eq.${encodeURIComponent(tripId)}`,
+    `user_trips?trip_id=eq.${encodeURIComponent(tripId)}`,
     {
-      method: "DELETE",
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        settlement_pending: true,
+      }),
     },
     { useServiceRole: true },
   );
 
-  await ensureResponseOk(response, "trip の終了に失敗しました。");
+  await ensureResponseOk(response, "trip の終了処理に失敗しました。");
+}
+
+async function markSettlementPendingForUser(userId: string, tripId: string) {
+  const response = await supabaseRestFetch(
+    `user_trips?user_id=eq.${encodeURIComponent(userId)}&trip_id=eq.${encodeURIComponent(tripId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        settlement_pending: true,
+      }),
+    },
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "trip 退出処理に失敗しました。");
 }
 
 async function generateUniqueTripCode() {
@@ -541,7 +617,7 @@ export async function createTripForUser(input: {
     throw new ApiError("trip の説明を入力してください。", 400);
   }
 
-  const existingTrip = await getTripForUser(input.userId);
+  const existingTrip = await getAnyTripForUser(input.userId);
 
   if (existingTrip) {
     throw new ApiError("すでに参加中の trip があります。", 409);
@@ -579,7 +655,15 @@ export async function createTripForUser(input: {
   try {
     await addUserToTrip(input.userId, trip.id);
   } catch (error) {
-    await deleteTripById(trip.id);
+    const rollbackResponse = await supabaseRestFetch(
+      `trips?id=eq.${encodeURIComponent(trip.id)}`,
+      {
+        method: "DELETE",
+      },
+      { useServiceRole: true },
+    );
+
+    await ensureResponseOk(rollbackResponse, "trip のロールバックに失敗しました。");
     throw error;
   }
 
@@ -596,7 +680,7 @@ export async function joinTripForUser(input: {
     throw new ApiError("旅 ID を入力してください。", 400);
   }
 
-  const existingTrip = await getTripForUser(input.userId);
+  const existingTrip = await getAnyTripForUser(input.userId);
 
   if (existingTrip) {
     throw new ApiError("すでに参加中の trip があります。", 409);
@@ -637,12 +721,45 @@ export async function leaveOrEndTripForUser(input: {
   const isOwner = trip.owner_user_id === input.userId;
 
   if (isOwner) {
-    await deleteTripById(trip.id);
+    await markSettlementPendingForTrip(trip.id);
     return { ended: true, tripId: trip.id };
   }
 
-  await removeUserFromTrip(input.userId, trip.id);
+  await markSettlementPendingForUser(input.userId, trip.id);
   return { ended: false, tripId: trip.id };
+}
+
+export async function completeSettlementForUser(input: {
+  userId: string;
+  tripId: string;
+}) {
+  const membershipResponse = await supabaseRestFetch(
+    `user_trips?select=user_id,trip_id,settlement_pending&user_id=eq.${encodeURIComponent(input.userId)}&trip_id=eq.${encodeURIComponent(input.tripId)}&limit=1`,
+    {},
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(
+    membershipResponse,
+    "結算対象の確認に失敗しました。",
+  );
+
+  const memberships = (await membershipResponse.json()) as Array<{
+    user_id: string;
+    trip_id: string;
+    settlement_pending: boolean;
+  }>;
+  const membership = memberships[0];
+
+  if (!membership) {
+    throw new ApiError("この trip の参加情報が見つかりません。", 404);
+  }
+
+  if (!membership.settlement_pending) {
+    throw new ApiError("この trip はまだ結算対象ではありません。", 409);
+  }
+
+  await removeUserFromTrip(input.userId, input.tripId);
 }
 
 export async function getCurrentProfileFromAccessToken(accessToken: string) {
