@@ -1,7 +1,16 @@
 import { redirect } from "next/navigation";
 
+import {
+  AppHeader,
+  AppShell,
+  Badge,
+  Icon,
+  SectionHeader,
+  StatTile,
+} from "@/components/app-ui";
 import LogoutButton from "@/components/logout-button";
 import SettlementFinishButton from "@/components/settlement-finish-button";
+import ThemeToggleButton from "@/components/theme-toggle-button";
 import { buildCompetitionRanks } from "@/lib/ranking";
 import {
   getCurrentProfileFromCookies,
@@ -11,6 +20,10 @@ import {
   type MissionAccess,
   type MissionProcess,
 } from "@/lib/supabase";
+
+function formatTripCode(tripCode: string) {
+  return `${tripCode.slice(0, 3)}-${tripCode.slice(3, 6)}-${tripCode.slice(6, 9)}`;
+}
 
 function getAccessLabel(access: MissionAccess) {
   return access === 1 ? "極秘" : "共通";
@@ -66,115 +79,97 @@ export default async function SettlementPage() {
   );
 
   return (
-    <main className="min-h-screen bg-[#f7f8f3] text-[#18211f]">
-      <header className="w-full bg-[#2f6a5d] text-white">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <p className="text-2xl font-bold">TabiQuest</p>
-            <p className="text-sm text-white/85">
-              旅先のひとときを、ミッションでもっと面白く。
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="h-10 rounded-md border border-white/35 px-4 text-sm font-semibold text-white transition hover:bg-white/10"
-            >
-              設定
-            </button>
-            <LogoutButton />
-          </div>
-        </div>
-      </header>
+    <AppShell>
+      <AppHeader>
+        <ThemeToggleButton />
+        <LogoutButton />
+      </AppHeader>
 
-      <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <section className="rounded-lg border border-[#d9ddd0] bg-white p-5 shadow-sm sm:p-6">
-          <p className="text-sm font-semibold text-[#4f7668]">Trip Summary</p>
-          <h1 className="mt-2 text-3xl font-bold">
-            {pendingSettlement.trip.trip_name} の終了画面
-          </h1>
-          <p className="mt-3 text-sm leading-6 text-[#59645f]">
-            {profile.display_name} さんの達成状況と、旅メンバーのランキングです。
-          </p>
-
-          <div className="mt-6 grid gap-4 sm:grid-cols-3">
-            <div className="rounded-lg bg-[#eef4ed] p-4">
-              <p className="text-xs font-semibold text-[#607068]">プレイヤー</p>
-              <p className="mt-1 text-lg font-bold">{profile.display_name}</p>
-              <p className="mt-1 text-sm text-[#59645f]">@{profile.username}</p>
-            </div>
-            <div className="rounded-lg bg-[#f4f1e7] p-4">
-              <p className="text-xs font-semibold text-[#766b4f]">完了タスク</p>
-              <p className="mt-1 text-3xl font-bold">
-                {completedCount}/{missions.length}
+      <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+        <section className="grid gap-4 rounded-md border border-[#d8e0d9] bg-white p-4 shadow-sm dark:border-[#26364f] dark:bg-[#0f1b2d] lg:grid-cols-[minmax(0,1.25fr)_repeat(3,minmax(180px,0.7fr))] lg:items-stretch">
+          <div className="flex min-h-28 flex-col justify-center gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase text-[#2f7d6b] dark:text-[#38bdf8]">
+                Trip Summary
+              </p>
+              <h1 className="mt-2 text-3xl font-bold leading-tight text-[#14231f] dark:text-[#e6edf7]">
+                {pendingSettlement.trip.trip_name}のまとめ
+              </h1>
+              <p className="mt-3 inline-flex items-center gap-2 rounded-md border border-[#d8e0d9] bg-[#fbfcf8] px-3 py-2 text-sm font-semibold text-[#38574f] dark:border-[#26364f] dark:bg-[#0b1626] dark:text-[#dbeafe]">
+                <Icon name="map" className="h-4 w-4" />
+                <span>旅 ID:</span>
+                <span className="font-mono text-xs">
+                  {formatTripCode(pendingSettlement.trip.trip_code)}
+                </span>
               </p>
             </div>
-            <div className="rounded-lg bg-[#edf1f6] p-4">
-              <p className="text-xs font-semibold text-[#53677b]">獲得ポイント</p>
-              <p className="mt-1 text-3xl font-bold">{totalPoints}</p>
-            </div>
           </div>
+
+          <StatTile
+            label="プレイヤー"
+            value={profile.display_name}
+            detail={`@${profile.username}`}
+            icon="user"
+            tone="green"
+          />
+          <StatTile
+            label="完了タスク"
+            value={`${completedCount}/${missions.length}`}
+            detail="今回の旅で達成したミッション"
+            icon="check"
+            tone="blue"
+          />
+          <StatTile
+            label="獲得ポイント"
+            value={totalPoints}
+            detail="完了済みミッションの合計"
+            icon="medal"
+            tone="amber"
+          />
         </section>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <section className="rounded-lg border border-[#d9ddd0] bg-white p-4 shadow-sm sm:p-6">
-            <div className="flex flex-col gap-2 border-b border-[#e3e6dc] pb-4 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold text-[#4f7668]">Mission List</p>
-                <h2 className="text-2xl font-bold tracking-normal">
-                  今回のミッション
-                </h2>
-              </div>
-              <p className="text-sm text-[#59645f]">
-                達成状況をふりかえって今回の旅を終了
-              </p>
-            </div>
+          <section className="rounded-md border border-[#d8e0d9] bg-white p-4 shadow-sm dark:border-[#26364f] dark:bg-[#0f1b2d] sm:p-6">
+            <SectionHeader
+              eyebrow="Mission List"
+              title="今回のミッション"
+              description="達成状況をふりかえって今回の旅を終了"
+            />
 
             <div className="mt-5 grid gap-4">
               {missions.length > 0 ? missions.map((mission) => (
                 <article
                   key={mission.id}
-                  className="grid gap-4 rounded-lg border border-[#e1e4db] bg-[#fbfcf8] p-4 sm:grid-cols-[1fr_auto] sm:items-center"
+                  className="grid gap-4 rounded-md border border-[#e0e6df] bg-[#fbfcf8] p-4 dark:border-[#26364f] dark:bg-[#0b1626] sm:grid-cols-[1fr_auto] sm:items-center"
                 >
                   <div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="text-lg font-bold">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="mr-1 text-lg font-bold text-[#14231f] dark:text-[#e6edf7]">
                         {mission.mission_name}
                       </h3>
-                      <span
-                        className={`rounded-md px-2.5 py-1 text-xs font-bold ${
-                          mission.access === 1
-                            ? "bg-[#2f3432] text-white"
-                            : "bg-[#dce9df] text-[#285847]"
-                        }`}
-                      >
+                      <Badge tone={mission.access === 1 ? "dark" : "green"}>
                         {getAccessLabel(mission.access)}
-                      </span>
-                      <span className="rounded-md bg-[#edf1f6] px-2.5 py-1 text-xs font-bold text-[#53677b]">
+                      </Badge>
+                      <Badge tone="blue">
                         {getMissionTypeLabel(mission.mission_type)}
-                      </span>
+                      </Badge>
                     </div>
-                    <p className="mt-3 text-sm leading-6 text-[#59645f]">
+                    <p className="mt-3 text-sm leading-6 text-[#5d6a63] dark:text-[#93a4b8]">
                       {mission.mission_description}
                     </p>
-                    <p className="mt-3 text-base font-bold text-[#315f52]">
+                    <p className="mt-3 inline-flex items-center gap-2 text-base font-bold text-[#2f7d6b] dark:text-[#2dd4bf]">
+                      <Icon name="spark" className="h-4 w-4" />
                       {mission.point} pt
                     </p>
                   </div>
 
-                  <div
-                    className={`inline-flex h-11 items-center justify-center rounded-md px-5 text-sm font-bold ${
-                      mission.process === 2
-                        ? "bg-[#d7ddd2] text-[#536057]"
-                        : "bg-[#f4f1e7] text-[#766b4f]"
-                    }`}
-                  >
+                  <Badge tone={mission.process === 2 ? "muted" : "amber"}>
                     {getProcessLabel(mission.process)}
-                  </div>
+                  </Badge>
                 </article>
               )) : (
-                <div className="rounded-lg border border-[#e1e4db] bg-[#fbfcf8] p-5">
-                  <p className="font-bold text-[#17211f]">
+                <div className="rounded-md border border-[#e0e6df] bg-[#fbfcf8] p-5 dark:border-[#26364f] dark:bg-[#0b1626]">
+                  <p className="font-bold text-[#14231f] dark:text-[#e6edf7]">
                     表示できるミッションがありません
                   </p>
                 </div>
@@ -182,42 +177,38 @@ export default async function SettlementPage() {
             </div>
           </section>
 
-          <aside className="rounded-lg border border-[#d9ddd0] bg-white p-4 shadow-sm sm:p-6">
-            <div className="border-b border-[#e3e6dc] pb-4">
-              <p className="text-sm font-semibold text-[#4f7668]">Ranking</p>
-              <h2 className="text-2xl font-bold tracking-normal">
-                最終ランキング
-              </h2>
-              <p className="mt-2 text-sm text-[#59645f]">
-                スコアが高い順に表示中
-              </p>
-            </div>
+          <aside className="rounded-md border border-[#d8e0d9] bg-white p-4 shadow-sm dark:border-[#26364f] dark:bg-[#0f1b2d] sm:p-6">
+            <SectionHeader
+              eyebrow="Ranking"
+              title="ランキング"
+              description="スコアが高い順に表示中"
+            />
 
             <ol className="mt-5 grid gap-3">
               {ranking.map((user, index) => (
                 <li
                   key={user.user_id}
-                  className={`grid grid-cols-[44px_1fr_auto] items-center gap-3 rounded-lg border p-3 ${
+                  className={`grid min-h-16 grid-cols-[44px_1fr_auto] items-center gap-3 rounded-md border p-3 ${
                     user.is_me
-                      ? "border-[#79a894] bg-[#edf6f1]"
-                      : "border-[#e1e4db] bg-[#fbfcf8]"
+                      ? "border-[#88b9a7] bg-[#eef6f1] dark:border-[#2563eb] dark:bg-[#102a56]"
+                      : "border-[#e0e6df] bg-[#fbfcf8] dark:border-[#26364f] dark:bg-[#0b1626]"
                   }`}
                 >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-md bg-white text-base font-bold text-[#315f52]">
+                  <span className="grid h-10 w-10 place-items-center rounded-md bg-white text-base font-bold text-[#2f7d6b] dark:bg-[#0f1b2d] dark:text-[#2dd4bf]">
                     {rankingPositions[index]}
                   </span>
-                  <div>
-                    <p className="font-bold">
+                  <div className="min-w-0">
+                    <p className="truncate font-bold text-[#14231f] dark:text-[#e6edf7]">
                       {user.display_name}
                       {user.is_me ? "（自分）" : ""}
                     </p>
-                    <p className="text-xs text-[#59645f]">
+                    <p className="text-xs text-[#5d6a63] dark:text-[#93a4b8]">
                       完了 {user.completed_missions} 件
                     </p>
                   </div>
-                  <p className="text-lg font-bold text-[#17211f]">
+                  <p className="text-lg font-bold text-[#14231f] dark:text-[#e6edf7]">
                     {user.points}
-                    <span className="ml-1 text-xs text-[#59645f]">pt</span>
+                    <span className="ml-1 text-xs text-[#5d6a63] dark:text-[#93a4b8]">pt</span>
                   </p>
                 </li>
               ))}
@@ -227,6 +218,6 @@ export default async function SettlementPage() {
           </aside>
         </div>
       </div>
-    </main>
+    </AppShell>
   );
 }

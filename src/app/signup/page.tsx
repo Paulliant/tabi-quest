@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 
+import { AuthShell } from "@/components/app-ui";
+import ThemeToggleButton from "@/components/theme-toggle-button";
 import SignupForm from "./signup-form";
 import { getCurrentProfileFromCookies } from "@/lib/supabase";
 
@@ -11,10 +13,8 @@ export default async function SignupPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f7f8f3] px-4 py-8">
-      <div className="w-full max-w-md">
-        <SignupForm />
-      </div>
-    </main>
+    <AuthShell action={<ThemeToggleButton />}>
+      <SignupForm />
+    </AuthShell>
   );
 }

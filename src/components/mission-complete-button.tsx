@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { Icon } from "@/components/app-ui";
+
 type MissionCompleteButtonProps = {
   missionId: string;
   process: 0 | 1 | 2;
@@ -65,17 +67,20 @@ export default function MissionCompleteButton({
         type="button"
         onClick={handleComplete}
         disabled={disabled}
-        className={`h-11 rounded-md px-5 text-sm font-bold transition ${
+        className={`inline-flex h-11 min-w-28 items-center justify-center gap-2 rounded-md px-5 text-sm font-bold transition ${
           isDone
-            ? "bg-[#d7ddd2] text-[#536057]"
-            : "bg-[#236b5b] text-white hover:bg-[#1c5649]"
+            ? "bg-[#edf0eb] text-[#59645f] dark:bg-[#172033] dark:text-[#b6c2d2]"
+            : "bg-[#2f7d6b] text-white hover:bg-[#276452] dark:bg-[#0ea5e9] dark:hover:bg-[#0284c7]"
         } disabled:cursor-not-allowed disabled:opacity-75`}
       >
+        <Icon name={isDone ? "check" : "target"} />
         {label}
       </button>
 
       {errorMessage ? (
-        <p className="max-w-40 text-sm text-[#9a3e2d]">{errorMessage}</p>
+        <p className="max-w-40 text-sm font-medium text-[#9a3e2d]">
+          {errorMessage}
+        </p>
       ) : null}
     </div>
   );
