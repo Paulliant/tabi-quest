@@ -54,9 +54,6 @@ export default function LoginForm() {
         <div>
           <p className="text-xs font-bold uppercase text-[#2f7d6b] dark:text-[#38bdf8]">Login</p>
           <h1 className="mt-1 text-3xl font-bold text-[#14231f] dark:text-[#e6edf7]">ログイン</h1>
-          <p className="mt-2 text-sm leading-6 text-[#5d6a63] dark:text-[#93a4b8]">
-            ユーザー名とパスワードで TabiQuest に入ります。
-          </p>
         </div>
       </div>
 

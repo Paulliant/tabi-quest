@@ -11,12 +11,19 @@ export default function SignupForm() {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage("");
+
+    if (password !== passwordConfirmation) {
+      setErrorMessage("パスワードが一致しません。");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -55,9 +62,6 @@ export default function SignupForm() {
         <div>
           <p className="text-xs font-bold uppercase text-[#2f7d6b] dark:text-[#38bdf8]">Signup</p>
           <h1 className="mt-1 text-3xl font-bold text-[#14231f] dark:text-[#e6edf7]">新規登録</h1>
-          <p className="mt-2 text-sm leading-6 text-[#5d6a63] dark:text-[#93a4b8]">
-            ユーザー名・表示名・パスワードを設定して始めます。
-          </p>
         </div>
       </div>
 
@@ -93,6 +97,19 @@ export default function SignupForm() {
           autoComplete="new-password"
           className="h-11 rounded-md border border-[#cfd8d1] bg-[#fbfcf8] px-3 text-base outline-none transition focus:border-[#2f7d6b] focus:ring-3 focus:ring-[#2f7d6b]/15 dark:border-[#26364f] dark:bg-[#0b1626] dark:text-[#e6edf7] dark:placeholder:text-[#64748b] dark:focus:border-[#38bdf8] dark:focus:ring-[#38bdf8]/15"
           placeholder="パスワードを入力"
+          required
+        />
+      </label>
+
+      <label className="grid gap-2 text-sm font-semibold text-[#24312d] dark:text-[#dbeafe]">
+        パスワード確認
+        <input
+          type="password"
+          value={passwordConfirmation}
+          onChange={(event) => setPasswordConfirmation(event.target.value)}
+          autoComplete="new-password"
+          className="h-11 rounded-md border border-[#cfd8d1] bg-[#fbfcf8] px-3 text-base outline-none transition focus:border-[#2f7d6b] focus:ring-3 focus:ring-[#2f7d6b]/15 dark:border-[#26364f] dark:bg-[#0b1626] dark:text-[#e6edf7] dark:placeholder:text-[#64748b] dark:focus:border-[#38bdf8] dark:focus:ring-[#38bdf8]/15"
+          placeholder="パスワードを再入力"
           required
         />
       </label>

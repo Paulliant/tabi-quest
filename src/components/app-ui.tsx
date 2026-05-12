@@ -40,7 +40,7 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
           <circle cx="28.5" cy="20.5" r="4.5" fill="#2f7d6b" />
         </svg>
       </div>
-      <div>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <p className="text-xl font-bold leading-6 text-[#14231f] dark:text-[#e6edf7]">TabiQuest</p>
         {!compact ? (
           <p className="text-xs font-medium text-[#607069] dark:text-[#93a4b8]">
@@ -137,7 +137,7 @@ export function AppHeader({ children }: { children: ReactNode }) {
   return (
     <header className="border-b border-[#d8e0d9] bg-white/95 dark:border-[#26364f] dark:bg-[#0b1626]/95">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-        <BrandMark compact />
+        <BrandMark />
         <div className="flex items-center gap-2">{children}</div>
       </div>
     </header>
