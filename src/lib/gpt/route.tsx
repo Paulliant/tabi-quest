@@ -60,6 +60,9 @@ function getOpenAIApiKey() {
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+const OPENAI_REQUEST_TIMEOUT_MS = 30_000;
+const OPENAI_MAX_RETRY_WINDOW_MS = 55_000;
+const OPENAI_RETRY_DELAY_MS = 1_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -131,6 +134,28 @@ function normalizeMissionCount(value: unknown) {
 	return Math.min(10, Math.max(1, Math.trunc(value)));
 }
 
+function sleep(ms: number) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetryStatus(status: number) {
+	return status === 408 || status === 409 || status === 429 || status >= 500;
+}
+
+function shouldRetryError(error: Error) {
+	const message = error.message.toLowerCase();
+
+	return (
+		error.name === "AbortError" ||
+		message.includes("timeout") ||
+		message.includes("timed out") ||
+		message.includes("econnreset") ||
+		message.includes("enotfound") ||
+		message.includes("socket hang up") ||
+		message.includes("temporarily unavailable")
+	);
+}
+
 function getDefaultMissionCount(mode: MissionGenerationInput["generationMode"]) {
 	return mode === "secret" ? 3 : 3;
 }
@@ -139,23 +164,14 @@ function getMissionLabel(mode: MissionGenerationInput["generationMode"]) {
 	return mode === "secret" ? "極秘ミッション" : "共通ミッション";
 }
 
-function getMissionModePrompt(mode: MissionGenerationInput["generationMode"]) {
-	if (mode === "secret") {
-		return [
-			"あなたは旅行を盛り上げるミッション生成AIです。",
-			"ユーザーから『旅行名』と『自由記述』が与えられます。",
-			"それをもとに、個人にだけ与えられる極秘ミッションを生成してください。",
-			"ミッションは実行可能な内容にしつつ、他メンバーに気づかれるか気づかれないかの絶妙なラインで実施してください。",
-			"安全で倫理的に問題のない内容のみを生成してください。",
-		].join("\n");
-	}
-
+function getMissionSystemPrompt() {
 	return [
 		"あなたは旅行を盛り上げるミッション生成AIです。",
 		"ユーザーから『旅行名』と『自由記述』が与えられます。",
-		"それをもとに、旅行中に実行できる共通ミッションを生成してください。",
-		"全員で競い合いながら達成できる内容にしてください。",
-		"安全で倫理的に問題のない内容のみを生成してください。",
+		"それをもとに、旅行中に実行できるミッションを生成してください。",
+		"ミッションは安全で倫理的に問題のない、実行可能な内容のみ生成してください。",
+		"旅行名と自由記述から旅行先地域名がわかるなら旅行先地域名に関連したミッションにする",
+		"自由記述から行くスポットや食べ物などのキーワードがわかるならば、一部のミッションはそのキーワードに関連したミッションにする",
 	].join("\n");
 }
 
@@ -216,6 +232,53 @@ function parseMissionResponseText(content: string): GeneratedMissionResponse {
 	return { missions };
 }
 
+function getMissionJsonSchema(missionCount: number) {
+	return {
+		name: "trip_mission_generation",
+		strict: true,
+		schema: {
+			type: "object",
+			additionalProperties: false,
+			required: ["missions"],
+			properties: {
+				missions: {
+					type: "array",
+					minItems: missionCount,
+					maxItems: missionCount,
+					items: {
+						type: "object",
+						additionalProperties: false,
+						required: [
+							"missionName",
+							"description",
+							"type1",
+							"points",
+							"type2",
+							"additional",
+						],
+						properties: {
+							missionName: { type: "string" },
+							description: { type: "string" },
+							type1: { type: "string" },
+							points: {
+								type: "number",
+								enum: [...MISSION_POINT_VALUES],
+							},
+							type2: { type: "string" },
+							additional: {
+								type: "array",
+								minItems: 3,
+								maxItems: 3,
+								items: { type: "string" },
+							},
+						},
+					},
+				},
+			},
+		},
+	};
+}
+
 async function readInputFromRequest(request: Request) {
 	const contentType = request.headers.get("content-type") ?? "";
 
@@ -245,141 +308,250 @@ async function readInputFromRequest(request: Request) {
 	return normalizeTextCandidate(parseJsonLike(fallbackText));
 }
 
+function validateMission(value: unknown): GeneratedMission {
+	if (!isRecord(value)) {
+		throw new Error("GPT の応答が JSON オブジェクトではありませんでした。");
+	}
+
+	const additional = value.additional;
+
+	if (
+		typeof value.missionName !== "string" ||
+		typeof value.description !== "string" ||
+		typeof value.type1 !== "string" ||
+		typeof value.type2 !== "string" ||
+		typeof value.points !== "number" ||
+		!Array.isArray(additional) ||
+		additional.length !== 3 ||
+		additional.some((item) => typeof item !== "string")
+	) {
+		throw new Error("GPT の応答形式が期待値と一致しませんでした。");
+	}
+
+	return {
+		missionName: value.missionName,
+		description: value.description,
+		type1: value.type1,
+		points: value.points,
+		type2: value.type2,
+		additional: additional as [string, string, string],
+	};
+}
+
+function validateMissionResponse(
+	value: unknown,
+	missionCount?: number,
+): GeneratedMissionResponse {
+	if (Array.isArray(value)) {
+		const response = {
+			missions: value.map((item) => validateMission(item)),
+		};
+
+		if (
+			typeof missionCount === "number" &&
+			response.missions.length < missionCount
+		) {
+			throw new Error("GPT の応答ミッション数が不足しています。");
+		}
+
+		return response;
+	}
+
+	if (!isRecord(value)) {
+		throw new Error("GPT の応答が JSON オブジェクトではありませんでした。");
+	}
+
+	const missions = value.missions;
+
+	if (!Array.isArray(missions) || missions.length === 0) {
+		throw new Error("GPT の応答に missions 配列がありませんでした。");
+	}
+
+	const response = {
+		missions: missions.map((item) => validateMission(item)),
+	};
+
+	if (typeof missionCount === "number" && response.missions.length < missionCount) {
+		throw new Error("GPT の応答ミッション数が不足しています。");
+	}
+
+	return response;
+}
+
 async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 	const apiKey = getOpenAIApiKey();
 	const missionCount = normalizeMissionCount(
 		input.missionCount ?? getDefaultMissionCount(input.generationMode),
 	);
 	const missionLabel = getMissionLabel(input.generationMode);
-	const missionModePrompt = getMissionModePrompt(input.generationMode);
+	const missionSystemPrompt = getMissionSystemPrompt();
 	const playerName = input.playerName ?? input.username ?? "（未指定）";
 
 	if (!apiKey) {
 		throw new Error(".openai.key か OPENAI_API_KEY が設定されていません。");
 	}
 
-	const response = await fetch(OPENAI_API_URL, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${apiKey}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			model: OPENAI_MODEL,
-			temperature: 0.7,
-			messages: [
-				{
-					role: "system",
-					content: missionModePrompt,
-				},
-				{
-					role: "user",
-					content: [
-						`それをもとに、旅行中に実行できる${missionLabel}を生成してください。`,
-						input.generationMode === "secret"
-							? `対象ユーザー: ${playerName}`
-							: "",
-						"",
-						"# 目的",
-						input.generationMode === "secret"
-							? "- 個人ごとに違う行動を促してゲーム性を高める"
-							: "- 全員で競い合いながら楽しめるミッションを作る",
-						"- 観光・行動・発見・軽い交流の要素を含める",
-						"- 安全で倫理的に問題のない内容のみを生成する",
-						"",
-						"# 安全性・倫理ルール（必ず守る）",
-						"以下に該当するミッションは禁止",
-						"- 違法行為",
-						"- 危険行為",
-						"- 迷惑行為",
-						"- ハラスメント、差別、侮辱",
-						"- 性的・わいせつな内容",
-						"- 個人情報の取得や無断撮影",
-						"- 飲酒・賭博の強要",
-						"- 立入禁止区域への侵入",
-						"- 文化財や自然を傷つける行為",
-						"",
-						"# 出力形式（厳守）",
-						"各ミッションを1つずつ、以下の形式で出力してください。",
-						"余計な説明は一切書かないでください。",
-						"",
-						"ミッション名：",
-						"（ここに記述）",
-						"",
-						"説明：",
-						"（ここに記述）",
-						"",
-						"ミッション種別：",
-						missionLabel,
-						"",
-						"ポイント：",
-						"(10,20,30,40,50の数値)",
-						"",
-						"クリア方法：",
-						"(0〜2の数値)",
-						"",
-						"---（区切り線として必ず出力）",
-						"",
-						"# ルール",
-						input.generationMode === "secret"
-							? `- 極秘ミッションは${missionCount}個生成する`
-							: `- 共通ミッションは${missionCount}個生成する`,
-						input.generationMode === "secret"
-							? "- 個人で実行できる内容にする"
-							: "- 全員で競い合いながら達成できる内容にする",
-						"- 内容はバリエーションを持たせる",
-						input.generationMode === "secret"
-							? "- 迷惑にならない範囲で行動する内容にする"
-							: "",
-						input.generationMode === "secret"
-							? "- 旅行名に関連したミッションを入れる"
-							: "- 旅行名に関連したミッションを入れる",
-						"",
-						input.generationMode === "secret"
-							? "一部は自由記述を参考にしたミッションにしてください。"
-							: "一部は自由記述を参考にしたミッションにしてください。",
-						"# クリア方法",
-						input.generationMode === "secret"
-							? ["0：そのまま完了", "1：投票", "2：写真付き投票"]
-							: ["0：そのまま完了", "1：投票", "2：写真付き投票"],
-						"",
-						"# 入力",
-						`旅行名: ${input.tripTitle ?? "（未指定）"}`,
-						`自由記述: ${travelText}`,
-						input.generationMode === "secret"
-							? "極秘ミッションは3個生成する"
-							: "共通ミッションは3個生成する",
-						"",
-					]
-						.filter(Boolean)
-						.join("\n"),
-				},
-			],
-		}),
-	});
+	let lastError: Error | null = null;
+	const retryDeadline = Date.now() + OPENAI_MAX_RETRY_WINDOW_MS;
+	let attempt = 0;
 
-	if (!response.ok) {
-		const errorText = await response.text().catch(() => "");
-		throw new Error(
-			`OpenAI API へのリクエストに失敗しました。${errorText ? ` ${errorText}` : ""}`.trim(),
-		);
-	}
+	while (Date.now() < retryDeadline) {
+		attempt += 1;
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), OPENAI_REQUEST_TIMEOUT_MS);
 
-	const data = (await response.json()) as {
-		choices?: Array<{
-			message?: {
-				content?: string | null;
+		try {
+			const response = await fetch(OPENAI_API_URL, {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${apiKey}`,
+					"Content-Type": "application/json",
+				},
+				signal: controller.signal,
+				body: JSON.stringify({
+					model: OPENAI_MODEL,
+					temperature: 0.4,
+					response_format: {
+						type: "json_schema",
+						json_schema: getMissionJsonSchema(missionCount),
+					},
+					messages: [
+						{
+							role: "system",
+							content: missionSystemPrompt,
+						},
+						{
+							role: "user",
+							content: [
+								`それをもとに、旅行中に実行できる${missionLabel}を生成してください。`,
+								input.generationMode === "secret"
+									? `対象ユーザー: ${playerName}`
+									: "",
+								"",
+								"# 目的",
+								input.generationMode === "secret"
+									? "- 個人ごとの極秘ミッションを生成する"
+									: "- 全員で投票や写真付き投票を行うミッションを生成する",
+								"- 観光・行動・発見・軽い交流の要素を含める",
+								"- 安全で倫理的に問題のない内容のみを生成する",
+								"",
+								"# 安全性・倫理ルール（必ず守る）",
+								"以下に該当するミッションは禁止",
+								"- 違法行為",
+								"- 危険行為",
+								"- 迷惑行為",
+								"- ハラスメント、差別、侮辱",
+								"- 性的・わいせつな内容",
+								"- 個人情報の取得や無断撮影",
+								"- 飲酒・賭博の強要",
+								"- 立入禁止区域への侵入",
+								"- 文化財や自然を傷つける行為",
+								"",
+								"# 出力ルール",
+								input.generationMode === "secret"
+									? `- 極秘ミッションはちょうど${missionCount}個生成する`
+									: `- 共通ミッションはちょうど${missionCount}個生成する`,
+								input.generationMode === "secret"
+									? "- 個人で実行できる内容にする"
+									: "- 全員で競い合い、投票や写真付き投票により明確に勝敗や優劣（面白さ含む）を付け、上位の人に得点を付与する内容にする",
+								"- 内容はバリエーションを持たせる",
+								input.generationMode === "secret"
+									? "- 極秘ミッションは実行可能な内容にしつつ、他メンバーに気づかれるか気づかれないかの絶妙なラインで実施してください。"
+									: "共通ミッションはクリア方法が1,2のものに限る",
+								input.generationMode === "secret"
+									? "- points は 10,20,30,40,50 のいずれかで、極秘ミッションはバレやすさに応じて高ポイントにする傾向で出力してください。"
+									: "- points は 10,20,30,40,50 のいずれかで、共通ミッションは面白さや難易度に応じて高ポイントにする傾向で出力してください。",
+								"- missionName は短く具体的にする",
+								"- description は1〜2文で具体的に書く",
+								"- type1 は内容分類の短い文字列にする",
+								"- type2 は空文字でよい",
+								"- additional[0] にはクリア方法の数値を文字列で入れる",
+								"- additional[1], additional[2] は空文字でよい",
+								"",
+								"# クリア方法",
+								"0：そのまま完了",
+								"1：投票",
+								"2：写真付き投票",
+								//input.generationMode === "secret"
+								//	? "3：位置情報で判定"
+								//	: "",
+								"",
+								"# 入力",
+								`旅行名: ${input.tripTitle ?? "（未指定）"}`,
+								`自由記述: ${travelText}`,
+							]
+								.filter(Boolean)
+								.join("\n"),
+						},
+					],
+				}),
+			});
+
+			clearTimeout(timeoutId);
+
+			if (!response.ok) {
+				const errorText = await response.text().catch(() => "");
+
+				if (shouldRetryStatus(response.status) && Date.now() < retryDeadline) {
+					await sleep(Math.min(OPENAI_RETRY_DELAY_MS * attempt, 5_000));
+					continue;
+				}
+
+				throw new Error(
+					`OpenAI API へのリクエストに失敗しました。${errorText ? ` ${errorText}` : ""}`.trim(),
+				);
+			}
+
+			const data = (await response.json()) as {
+				choices?: Array<{
+					message?: {
+						content?: string | null;
+					};
+				}>;
 			};
-		}>;
-	};
 
-	const content = data.choices?.[0]?.message?.content;
+			const content = data.choices?.[0]?.message?.content;
 
-	if (!content) {
-		throw new Error("OpenAI から有効な応答を受け取れませんでした。");
+			if (!content) {
+				throw new Error("OpenAI から有効な応答を受け取れませんでした。");
+			}
+
+			try {
+				const parsed = JSON.parse(content) as unknown;
+				return validateMissionResponse(parsed, missionCount);
+			} catch (jsonError) {
+				try {
+					return parseMissionResponseText(content);
+				} catch {
+					throw jsonError;
+				}
+			}
+		} catch (error) {
+			clearTimeout(timeoutId);
+			lastError =
+				error instanceof Error ? error : new Error("OpenAI 呼び出しに失敗しました。");
+
+			if (error instanceof Error && error.name === "AbortError") {
+				lastError = new Error("OpenAI API の応答がタイムアウトしました。");
+			}
+
+			if (shouldRetryError(lastError) && Date.now() < retryDeadline) {
+				await sleep(Math.min(OPENAI_RETRY_DELAY_MS * attempt, 5_000));
+				continue;
+			}
+
+			throw lastError;
+		}
 	}
 
-	return parseMissionResponseText(content);
+	throw (
+		lastError ??
+		new Error(
+			`OpenAI からミッションを生成できませんでした。${Math.floor(
+				OPENAI_MAX_RETRY_WINDOW_MS / 1000,
+			)}秒以内に有効な応答を取得できませんでした。`,
+		)
+	);
 }
 
 export async function generateMissionFromTravelInput(

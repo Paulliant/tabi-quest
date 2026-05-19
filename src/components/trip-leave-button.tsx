@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { Icon } from "@/components/app-ui";
+
 export default function TripLeaveButton({ isOwner }: { isOwner: boolean }) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -39,8 +41,9 @@ export default function TripLeaveButton({ isOwner }: { isOwner: boolean }) {
         type="button"
         onClick={handleClick}
         disabled={isSubmitting}
-        className="h-11 rounded-md bg-[#c74545] px-5 text-sm font-bold text-white transition hover:bg-[#ac3939] disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex h-11 w-fit min-w-36 items-center justify-center gap-2 rounded-md bg-[#c94f45] px-5 text-sm font-bold text-white transition hover:bg-[#ad4138] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-[#dc2626] dark:hover:bg-[#b91c1c]"
       >
+        <Icon name="flag" />
         {isSubmitting
           ? "処理中..."
           : isOwner
@@ -49,7 +52,7 @@ export default function TripLeaveButton({ isOwner }: { isOwner: boolean }) {
       </button>
 
       {errorMessage ? (
-        <p className="text-sm text-[#9a3e2d]">{errorMessage}</p>
+        <p className="text-sm font-medium text-[#9a3e2d] dark:text-[#fca5a5]">{errorMessage}</p>
       ) : null}
     </div>
   );

@@ -1,5 +1,14 @@
 import { redirect } from "next/navigation";
 
+import {
+  AppHeader,
+  AppShell,
+  Badge,
+  Icon,
+  SectionHeader,
+  StatTile,
+} from "@/components/app-ui";
+import ThemeToggleButton from "@/components/theme-toggle-button";
 import MissionCompleteButton from "@/components/mission-complete-button";
 import TripLeaveButton from "@/components/trip-leave-button";
 import LogoutButton from "@/components/logout-button";
@@ -28,7 +37,7 @@ function getMissionTypeLabel(mission: Mission) {
   }
 
   if (mission.mission_type === 2) {
-    return "写真";
+    return "写真付き投票";
   }
 
   if (mission.mission_type === 3) {
@@ -65,125 +74,95 @@ export default async function Home() {
   const completedCount = missions.filter((mission) => mission.process === 2).length;
 
   return (
-    <main className="min-h-screen bg-[#f7f8f3] text-[#18211f]">
-      <header className="w-full bg-[#2f6a5d] text-white">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <p className="text-2xl font-bold">TabiQuest</p>
-            <p className="text-sm text-white/85">
-              旅先のひとときを、ミッションでもっと面白く。
-            </p>
-          </div>
+    <AppShell>
+      <AppHeader>
+        <ThemeToggleButton />
+        <LogoutButton />
+      </AppHeader>
 
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="h-10 rounded-md border border-white/35 px-4 text-sm font-semibold text-white transition hover:bg-white/10"
-            >
-              設定
-            </button>
-            <LogoutButton />
-          </div>
-        </div>
-      </header>
-
-      <div className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
-        <section className="grid gap-4 rounded-lg border border-[#d9ddd0] bg-white p-4 shadow-sm sm:grid-cols-[1.1fr_0.9fr_0.8fr_0.8fr] sm:items-center">
-          <div>
-            <p className="text-sm font-semibold text-[#4f7668]">Current Journey</p>
-            <h1 className="mt-1 text-2xl font-bold tracking-normal text-[#17211f]">
-              {trip ? trip.trip_name : "まだ旅に参加していません"}
-            </h1>
-            {trip ? (
-              <p className="mt-3 text-sm font-semibold text-[#315f52]">
-                旅 ID:{" "}
-                <span className="font-mono text-xs text-[#59645f]">
-                  {formatTripCode(trip.trip_code)}
-                </span>
+      <div className="mx-auto flex min-h-[calc(100vh-76px)] w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
+        <section className="grid gap-4 rounded-md border border-[#d8e0d9] bg-white p-4 shadow-sm dark:border-[#26364f] dark:bg-[#0f1b2d] lg:grid-cols-[minmax(0,1.25fr)_repeat(3,minmax(180px,0.7fr))] lg:items-stretch">
+          <div className="flex min-h-28 flex-col justify-center gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase text-[#2f7d6b] dark:text-[#38bdf8]">
+                Current Journey
               </p>
-            ) : (
-              <p className="mt-2 text-sm leading-6 text-[#59645f]">
-                新しい旅を作成するか、旅 ID を入力して既存の旅に参加してください。
-              </p>
-            )}
+              <h1 className="mt-2 text-3xl font-bold leading-tight text-[#14231f] dark:text-[#e6edf7]">
+                {trip ? trip.trip_name : "まだ旅に参加していません"}
+              </h1>
+              {trip ? (
+                <p className="mt-3 inline-flex items-center gap-2 rounded-md border border-[#d8e0d9] bg-[#fbfcf8] px-3 py-2 text-sm font-semibold text-[#38574f] dark:border-[#26364f] dark:bg-[#0b1626] dark:text-[#dbeafe]">
+                  <Icon name="map" className="h-4 w-4" />
+                  <span>旅 ID:</span>
+                  <span className="font-mono text-xs">
+                    {formatTripCode(trip.trip_code)}
+                  </span>
+                </p>
+              ) : (
+                <p className="mt-3 max-w-xl text-sm leading-6 text-[#5d6a63] dark:text-[#93a4b8]">
+                  新しい旅を作成するか、旅 ID を入力して既存の旅に参加してください。
+                </p>
+              )}
+            </div>
           </div>
 
-          <div className="rounded-lg bg-[#eef4ed] p-4">
-            <p className="text-xs font-semibold text-[#607068]">プレイヤー</p>
-            <p className="mt-1 text-lg font-bold">{profile.display_name}</p>
-            <p className="mt-1 text-sm text-[#59645f]">
-              @{profile.username}・参加中
-            </p>
-          </div>
-
-          <div className="rounded-lg bg-[#f4f1e7] p-4">
-            <p className="text-xs font-semibold text-[#766b4f]">現在スコア</p>
-            <p className="mt-1 text-3xl font-bold">
-              {trip ? myRanking?.points ?? 0 : "--"}
-            </p>
-            <p className="mt-1 text-sm text-[#665f50]">
-              {trip && myRankingPosition
+          <StatTile
+            label="プレイヤー"
+            value={profile.display_name}
+            detail={`@${profile.username}・参加中`}
+            icon="user"
+            tone="green"
+          />
+          <StatTile
+            label="現在スコア"
+            value={trip ? myRanking?.points ?? 0 : "--"}
+            detail={
+              trip && myRankingPosition
                 ? `${myRankingPosition}位 / ${ranking.length}人`
-                : "旅に参加すると表示"}
-            </p>
-          </div>
-
-          <div className="rounded-lg bg-[#edf1f6] p-4">
-            <p className="text-xs font-semibold text-[#53677b]">進行状況</p>
-            <p className="mt-1 text-3xl font-bold">
-              {trip ? `${completedCount}/${missions.length}` : "--"}
-            </p>
-            <p className="mt-1 text-sm text-[#59645f]">
-              {trip ? `獲得可能 ${totalPoints} pt` : "旅に参加すると表示"}
-            </p>
-          </div>
+                : "旅に参加すると表示"
+            }
+            icon="medal"
+            tone="amber"
+          />
+          <StatTile
+            label="進行状況"
+            value={trip ? `${completedCount}/${missions.length}` : "--"}
+            detail={trip ? `獲得可能 ${totalPoints} pt` : "旅に参加すると表示"}
+            icon="target"
+            tone="blue"
+          />
         </section>
 
         {trip ? (
           <div className="grid flex-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-            <section className="rounded-lg border border-[#d9ddd0] bg-white p-4 shadow-sm sm:p-6">
-              <div className="flex flex-col gap-2 border-b border-[#e3e6dc] pb-4 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-[#4f7668]">
-                    Mission List
-                  </p>
-                  <h2 className="text-2xl font-bold tracking-normal">
-                    今日のミッション
-                  </h2>
-                </div>
-                <p className="text-sm text-[#59645f]">
-                  共通ミッションと極秘ミッションを達成してポイントを獲得
-                </p>
-              </div>
+            <section className="rounded-md border border-[#d8e0d9] bg-white p-4 shadow-sm dark:border-[#26364f] dark:bg-[#0f1b2d] sm:p-6">
+              <SectionHeader
+                eyebrow="Mission List"
+                title="今日のミッション"
+                description="共通ミッションと極秘ミッションを達成してポイントを獲得"
+              />
 
               <div className="mt-5 grid gap-4">
                 {missions.length > 0 ? missions.map((mission) => (
                   <article
                     key={mission.id}
-                    className="grid gap-4 rounded-lg border border-[#e1e4db] bg-[#fbfcf8] p-4 sm:grid-cols-[1fr_auto] sm:items-center"
+                    className="grid gap-4 rounded-md border border-[#e0e6df] bg-[#fbfcf8] p-4 dark:border-[#26364f] dark:bg-[#0b1626] sm:grid-cols-[1fr_auto] sm:items-center"
                   >
                     <div>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <h3 className="text-lg font-bold">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="mr-1 text-lg font-bold text-[#14231f] dark:text-[#e6edf7]">
                           {mission.mission_name}
                         </h3>
-                        <span
-                          className={`rounded-md px-2.5 py-1 text-xs font-bold ${
-                            mission.access === 1
-                              ? "bg-[#2f3432] text-white"
-                              : "bg-[#dce9df] text-[#285847]"
-                          }`}
-                        >
+                        <Badge tone={mission.access === 1 ? "dark" : "green"}>
                           {getAccessLabel(mission.access)}
-                        </span>
-                        <span className="rounded-md bg-[#edf1f6] px-2.5 py-1 text-xs font-bold text-[#53677b]">
-                          {getMissionTypeLabel(mission)}
-                        </span>
+                        </Badge>
+                        <Badge tone="blue">{getMissionTypeLabel(mission)}</Badge>
                       </div>
-                      <p className="mt-3 max-w-3xl text-sm leading-6 text-[#59645f]">
+                      <p className="mt-3 max-w-3xl text-sm leading-6 text-[#5d6a63] dark:text-[#93a4b8]">
                         {mission.mission_description}
                       </p>
-                      <p className="mt-3 text-base font-bold text-[#315f52]">
+                      <p className="mt-3 inline-flex items-center gap-2 text-base font-bold text-[#2f7d6b] dark:text-[#2dd4bf]">
+                        <Icon name="spark" className="h-4 w-4" />
                         {mission.point} pt
                       </p>
                     </div>
@@ -195,11 +174,11 @@ export default async function Home() {
                     />
                   </article>
                 )) : (
-                  <div className="rounded-lg border border-[#e1e4db] bg-[#fbfcf8] p-5">
-                    <p className="font-bold text-[#17211f]">
+                  <div className="rounded-md border border-[#e0e6df] bg-[#fbfcf8] p-5 dark:border-[#26364f] dark:bg-[#0b1626]">
+                    <p className="font-bold text-[#14231f] dark:text-[#e6edf7]">
                       まだミッションがありません
                     </p>
-                    <p className="mt-2 text-sm leading-6 text-[#59645f]">
+                    <p className="mt-2 text-sm leading-6 text-[#5d6a63] dark:text-[#93a4b8]">
                       旅を作成または参加すると、固定ミッションが自動で作成されます。
                     </p>
                   </div>
@@ -207,42 +186,38 @@ export default async function Home() {
               </div>
             </section>
 
-            <aside className="rounded-lg border border-[#d9ddd0] bg-white p-4 shadow-sm sm:p-6">
-              <div className="border-b border-[#e3e6dc] pb-4">
-                <p className="text-sm font-semibold text-[#4f7668]">Ranking</p>
-                <h2 className="text-2xl font-bold tracking-normal">
-                  フレンドランキング
-                </h2>
-                <p className="mt-2 text-sm text-[#59645f]">
-                  スコアが高い順に表示中
-                </p>
-              </div>
+            <aside className="rounded-md border border-[#d8e0d9] bg-white p-4 shadow-sm dark:border-[#26364f] dark:bg-[#0f1b2d] sm:p-6">
+              <SectionHeader
+                eyebrow="Ranking"
+                title="ランキング"
+                description="スコアが高い順に表示中"
+              />
 
               <ol className="mt-5 grid gap-3">
                 {ranking.map((user, index) => (
                   <li
                     key={user.user_id}
-                    className={`grid grid-cols-[44px_1fr_auto] items-center gap-3 rounded-lg border p-3 ${
+                    className={`grid min-h-16 grid-cols-[44px_1fr_auto] items-center gap-3 rounded-md border p-3 ${
                       user.is_me
-                        ? "border-[#79a894] bg-[#edf6f1]"
-                        : "border-[#e1e4db] bg-[#fbfcf8]"
+                        ? "border-[#88b9a7] bg-[#eef6f1] dark:border-[#2563eb] dark:bg-[#102a56]"
+                        : "border-[#e0e6df] bg-[#fbfcf8] dark:border-[#26364f] dark:bg-[#0b1626]"
                     }`}
                   >
-                    <span className="flex h-10 w-10 items-center justify-center rounded-md bg-white text-base font-bold text-[#315f52]">
+                    <span className="grid h-10 w-10 place-items-center rounded-md bg-white text-base font-bold text-[#2f7d6b] dark:bg-[#0f1b2d] dark:text-[#2dd4bf]">
                       {rankingPositions[index]}
                     </span>
-                    <div>
-                      <p className="font-bold">
+                    <div className="min-w-0">
+                      <p className="truncate font-bold text-[#14231f] dark:text-[#e6edf7]">
                         {user.display_name}
                         {user.is_me ? "（自分）" : ""}
                       </p>
-                      <p className="text-xs text-[#59645f]">
+                      <p className="text-xs text-[#5d6a63] dark:text-[#93a4b8]">
                         完了 {user.completed_missions} 件
                       </p>
                     </div>
-                    <p className="text-lg font-bold text-[#17211f]">
+                    <p className="text-lg font-bold text-[#14231f] dark:text-[#e6edf7]">
                       {user.points}
-                      <span className="ml-1 text-xs text-[#59645f]">pt</span>
+                      <span className="ml-1 text-xs text-[#5d6a63] dark:text-[#93a4b8]">pt</span>
                     </p>
                   </li>
                 ))}
@@ -255,6 +230,6 @@ export default async function Home() {
           <TripEntryPanel />
         )}
       </div>
-    </main>
+    </AppShell>
   );
 }

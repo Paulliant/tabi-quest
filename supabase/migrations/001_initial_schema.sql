@@ -63,8 +63,8 @@ create table if not exists public.mission (
   user_id uuid not null,
   process smallint not null,
   mission_type smallint not null,
-  extra_data text,
-  additional text,
+  vote bigint not null default 0,
+  additional text not null default '',
   constraint mission_user_id_fkey
     foreign key (user_id)
     references public.profiles(id)
