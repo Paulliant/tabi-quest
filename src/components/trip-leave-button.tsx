@@ -19,10 +19,18 @@ export default function TripLeaveButton({ isOwner }: { isOwner: boolean }) {
         method: "POST",
       });
 
-      const data = (await response.json()) as { error?: string };
+      const data = (await response.json()) as {
+        ended?: boolean;
+        error?: string;
+      };
 
       if (!response.ok) {
         throw new Error(data.error ?? "処理に失敗しました。");
+      }
+
+      if (data.ended) {
+        router.push("/settlement?hunt=1");
+        return;
       }
 
       router.refresh();
@@ -47,7 +55,7 @@ export default function TripLeaveButton({ isOwner }: { isOwner: boolean }) {
         {isSubmitting
           ? "処理中..."
           : isOwner
-            ? "旅を終了"
+            ? "ミッションハント"
             : "グループを退出"}
       </button>
 

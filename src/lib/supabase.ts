@@ -31,7 +31,7 @@ export type Trip = {
   updated_at: string;
 };
 
-export type MissionAccess = 0 | 1;
+export type MissionAccess = 0 | 1 | 2;
 export type MissionProcess = 0 | 1 | 2;
 export type MissionType = 0 | 1 | 2 | 3;
 export type MissionVote = number;
@@ -66,10 +66,62 @@ export type RankingEntry = {
   is_me: boolean;
 };
 
+export type SettlementProgress = 0 | 1 | 2;
+
+export type SecretGuessMember = Profile;
+
+export type SecretGuessMission = {
+  id: number;
+  mission_name: string;
+  mission_description: string;
+  point: number;
+};
+
+export type SecretGuessGame = {
+  members: SecretGuessMember[];
+  missions: SecretGuessMission[];
+};
+
+export type SecretGuessAssignment = {
+  missionId: string;
+  targetUserId: string;
+};
+
+export type SecretGuessResult = {
+  mission_id: number;
+  mission_name: string;
+  target_user_id: string;
+  correct: boolean;
+  points: number;
+};
+
+export type SecretGuessScoreResult = {
+  guess_delta: number;
+  results: SecretGuessResult[];
+  ranking: MissionHuntRankingEntry[];
+  all_completed: boolean;
+  winner_message: string | null;
+};
+
+export type MissionHuntRankingEntry = RankingEntry & {
+  mission_points: number;
+  guess_points: number | null;
+  total_points: number | null;
+  hunt_completed: boolean;
+};
+
+export type MissionHuntSettlement = {
+  game: SecretGuessGame;
+  ranking: MissionHuntRankingEntry[];
+  my_result: SecretGuessScoreResult | null;
+  all_completed: boolean;
+  winner_message: string | null;
+};
+
 type UserTrip = {
   user_id: string;
   trip_id: string;
-  settlement_pending: boolean;
+  settlement_progress: SettlementProgress;
   created_at: string;
 };
 
@@ -128,7 +180,7 @@ export type MissionVoteView = {
 };
 
 const COMMON_MISSION_COUNT = 3;
-const SECRET_MISSION_COUNT = 2;
+const SECRET_MISSION_COUNT = 3;
 
 export class ApiError extends Error {
   status: number;
@@ -566,16 +618,19 @@ export async function getTripByCode(tripCode: string) {
 async function getTripMembershipForUser(
   userId: string,
   options?: {
-    settlementPending?: boolean;
+    settlementProgress?: SettlementProgress;
+    minSettlementProgress?: SettlementProgress;
   },
 ) {
   const settlementFilter =
-    typeof options?.settlementPending === "boolean"
-      ? `&settlement_pending=eq.${options.settlementPending}`
+    typeof options?.settlementProgress === "number"
+      ? `&settlement_progress=eq.${options.settlementProgress}`
+      : typeof options?.minSettlementProgress === "number"
+        ? `&settlement_progress=gte.${options.minSettlementProgress}`
       : "";
 
   const membershipResponse = await supabaseRestFetch(
-    `user_trips?select=user_id,trip_id,settlement_pending,created_at&user_id=eq.${encodeURIComponent(userId)}${settlementFilter}&order=created_at.asc&limit=1`,
+    `user_trips?select=user_id,trip_id,settlement_progress,created_at&user_id=eq.${encodeURIComponent(userId)}${settlementFilter}&order=created_at.asc&limit=1`,
     {},
     { useServiceRole: true },
   );
@@ -602,7 +657,7 @@ async function getTripMembershipForUser(
 
 export async function getTripForUser(userId: string) {
   const activeMembership = await getTripMembershipForUser(userId, {
-    settlementPending: false,
+    settlementProgress: 0,
   });
 
   return activeMembership?.trip ?? null;
@@ -615,7 +670,7 @@ async function getAnyTripForUser(userId: string) {
 
 export async function getPendingSettlementForUser(userId: string) {
   const membership = await getTripMembershipForUser(userId, {
-    settlementPending: true,
+    minSettlementProgress: 1,
   });
 
   if (!membership) {
@@ -637,7 +692,7 @@ async function addUserToTrip(userId: string, tripId: string) {
       body: JSON.stringify({
         user_id: userId,
         trip_id: tripId,
-        settlement_pending: false,
+        settlement_progress: 0,
       }),
     },
     { useServiceRole: true },
@@ -673,7 +728,10 @@ async function deleteMissionsForUser(userId: string) {
   await ensureResponseOk(response, "ミッションの削除に失敗しました。");
 }
 
-async function markSettlementPendingForTrip(tripId: string) {
+async function markSettlementProgressForTrip(
+  tripId: string,
+  settlementProgress: SettlementProgress,
+) {
   const response = await supabaseRestFetch(
     `user_trips?trip_id=eq.${encodeURIComponent(tripId)}`,
     {
@@ -682,7 +740,7 @@ async function markSettlementPendingForTrip(tripId: string) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        settlement_pending: true,
+        settlement_progress: settlementProgress,
       }),
     },
     { useServiceRole: true },
@@ -691,7 +749,11 @@ async function markSettlementPendingForTrip(tripId: string) {
   await ensureResponseOk(response, "trip の終了処理に失敗しました。");
 }
 
-async function markSettlementPendingForUser(userId: string, tripId: string) {
+async function markSettlementProgressForUser(
+  userId: string,
+  tripId: string,
+  settlementProgress: SettlementProgress,
+) {
   const response = await supabaseRestFetch(
     `user_trips?user_id=eq.${encodeURIComponent(userId)}&trip_id=eq.${encodeURIComponent(tripId)}`,
     {
@@ -700,7 +762,7 @@ async function markSettlementPendingForUser(userId: string, tripId: string) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        settlement_pending: true,
+        settlement_progress: settlementProgress,
       }),
     },
     { useServiceRole: true },
@@ -824,7 +886,7 @@ async function getGeneratedSecretMissionDrafts(input: {
     username: profile.username,
   });
 
-  const drafts = result.missions.slice(0, SECRET_MISSION_COUNT).map((mission) => {
+  const drafts = result.missions.slice(0, SECRET_MISSION_COUNT).map((mission, index) => {
     const clearMethod = Number(mission.additional[0]);
     const missionType = normalizeGeneratedMissionType(clearMethod);
 
@@ -832,7 +894,7 @@ async function getGeneratedSecretMissionDrafts(input: {
       mission_id: createMissionGroupId(),
       mission_name: mission.missionName,
       mission_description: mission.description,
-      access: 1 as MissionAccess,
+      access: (index === SECRET_MISSION_COUNT - 1 ? 2 : 1) as MissionAccess,
       point: normalizeGeneratedPoint(mission.points),
       process: getInitialMissionProcess(missionType),
       mission_type: missionType,
@@ -1060,7 +1122,7 @@ export async function listMissionsForUser(userId: string) {
 
   return {
     trip,
-    missions,
+    missions: missions.filter((mission) => mission.access !== 2),
   };
 }
 
@@ -1137,7 +1199,7 @@ async function getVotingContext(input: {
   }
 
   const memberships = (await getTripMemberships(trip.id)).filter(
-    (membership) => !membership.settlement_pending,
+    (membership) => membership.settlement_progress === 0,
   );
   const memberUserIds = memberships.map((membership) => membership.user_id);
   const groupMissions = await getMissionRowsForMembers({
@@ -1270,7 +1332,7 @@ export async function voteMissionForUser(input: {
 
 async function getTripMemberships(tripId: string) {
   const response = await supabaseRestFetch(
-    `user_trips?select=user_id,trip_id,settlement_pending,created_at&trip_id=eq.${encodeURIComponent(tripId)}&order=created_at.asc`,
+    `user_trips?select=user_id,trip_id,settlement_progress,created_at&trip_id=eq.${encodeURIComponent(tripId)}&order=created_at.asc`,
     {},
     { useServiceRole: true },
   );
@@ -1288,7 +1350,7 @@ async function getRankingForTrip(input: {
   const memberships = await getTripMemberships(input.trip.id);
   const rankingMemberships = input.includeSettlementPending
     ? memberships
-    : memberships.filter((membership) => !membership.settlement_pending);
+    : memberships.filter((membership) => membership.settlement_progress === 0);
   const rankingUserIds = rankingMemberships.map((membership) => membership.user_id);
   const completedMissionsResponse =
     rankingUserIds.length > 0
@@ -1461,6 +1523,262 @@ export async function getSettlementRankingForUser(userId: string) {
   });
 }
 
+async function getDummyMissionForUser(userId: string) {
+  const response = await supabaseRestFetch(
+    `mission?select=${getMissionSelectQuery()}&user_id=eq.${encodeURIComponent(userId)}&access=eq.2&limit=1`,
+    {},
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "ミッションハント結果の取得に失敗しました。");
+
+  const rows = (await response.json()) as Mission[];
+  return rows[0] ?? null;
+}
+
+function readSecretGuessResultFromMission(mission: Mission | null) {
+  if (!mission) {
+    return null;
+  }
+
+  const additional = parseMissionText(mission.additional);
+  const result = additional.secret_guess;
+
+  return isJsonObject(result) ? result : null;
+}
+
+async function getSecretGuessDeltaForUser(userId: string) {
+  const dummyMission = await getDummyMissionForUser(userId);
+  const result = readSecretGuessResultFromMission(dummyMission);
+  const delta = result?.guess_delta;
+
+  return typeof delta === "number" && Number.isFinite(delta) ? delta : null;
+}
+
+function buildWinnerMessage(ranking: MissionHuntRankingEntry[]) {
+  if (ranking.some((entry) => !entry.hunt_completed)) {
+    return null;
+  }
+
+  const winner = ranking[0];
+
+  if (!winner || typeof winner.total_points !== "number") {
+    return null;
+  }
+
+  const winnerNames = ranking
+    .filter((entry) => entry.total_points === winner.total_points)
+    .map((entry) => `${entry.display_name}さん`)
+    .join("、");
+
+  return `優勝者は${winner.total_points}点を獲得した${winnerNames}です🏆`;
+}
+
+async function getMissionHuntRankingForUser(userId: string) {
+  const rankingResult = await getSettlementRankingForUser(userId);
+  const pendingSettlement = await getPendingSettlementForUser(userId);
+  const memberships = pendingSettlement
+    ? await getTripMemberships(pendingSettlement.trip.id)
+    : [];
+  const progressByUserId = new Map(
+    memberships.map((membership) => [
+      membership.user_id,
+      membership.settlement_progress,
+    ]),
+  );
+  const guessDeltas = new Map<string, number | null>();
+
+  await Promise.all(
+    rankingResult.ranking.map(async (entry) => {
+      guessDeltas.set(entry.user_id, await getSecretGuessDeltaForUser(entry.user_id));
+    }),
+  );
+
+  const ranking = rankingResult.ranking
+    .map((entry) => {
+      const huntCompleted = progressByUserId.get(entry.user_id) === 2;
+      const guessPoints = huntCompleted ? guessDeltas.get(entry.user_id) ?? 0 : null;
+      const totalPoints =
+        typeof guessPoints === "number" ? entry.points + guessPoints : null;
+
+      return {
+        ...entry,
+        mission_points: entry.points,
+        guess_points: guessPoints,
+        total_points: totalPoints,
+        hunt_completed: huntCompleted,
+      } satisfies MissionHuntRankingEntry;
+    })
+    .sort((a, b) => {
+      const aTotal = a.total_points ?? a.mission_points;
+      const bTotal = b.total_points ?? b.mission_points;
+      return bTotal - aTotal || a.display_name.localeCompare(b.display_name);
+    });
+
+  return ranking;
+}
+
+export async function getMissionHuntSettlementForUser(
+  userId: string,
+): Promise<MissionHuntSettlement> {
+  const [game, ranking, myDummyMission] = await Promise.all([
+    getSecretGuessGameForUser(userId),
+    getMissionHuntRankingForUser(userId),
+    getDummyMissionForUser(userId),
+  ]);
+  const myResult = readSecretGuessResultFromMission(myDummyMission);
+  const parsedResult = myResult
+    ? ({
+        guess_delta:
+          typeof myResult.guess_delta === "number" ? myResult.guess_delta : 0,
+        results: Array.isArray(myResult.results)
+          ? (myResult.results as SecretGuessResult[])
+          : [],
+        ranking,
+        all_completed: ranking.every((entry) => entry.hunt_completed),
+        winner_message: buildWinnerMessage(ranking),
+      } satisfies SecretGuessScoreResult)
+    : null;
+
+  return {
+    game,
+    ranking,
+    my_result: parsedResult,
+    all_completed: ranking.every((entry) => entry.hunt_completed),
+    winner_message: buildWinnerMessage(ranking),
+  };
+}
+
+export async function getSecretGuessGameForUser(userId: string): Promise<SecretGuessGame> {
+  const pendingSettlement = await getPendingSettlementForUser(userId);
+
+  if (!pendingSettlement) {
+    throw new ApiError("結算対象の trip がありません。", 404);
+  }
+
+  const memberships = await getTripMemberships(pendingSettlement.trip.id);
+  const memberUserIds = memberships.map((membership) => membership.user_id);
+  const profiles = await Promise.all(
+    memberUserIds.map((memberUserId) => getProfileById(memberUserId)),
+  );
+
+  const missionResponse = await supabaseRestFetch(
+    `mission?select=${getMissionSelectQuery()}&user_id=in.(${memberUserIds.map(encodeURIComponent).join(",")})&access=in.(1,2)&order=mission_id.asc`,
+    {},
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(missionResponse, "極秘ミッション候補の取得に失敗しました。");
+
+  const secretMissions = (await missionResponse.json()) as Mission[];
+
+  return {
+    members: profiles,
+    missions: secretMissions.map((mission) => ({
+      id: mission.id,
+      mission_name: mission.mission_name,
+      mission_description: mission.mission_description,
+      point: mission.point,
+    })),
+  };
+}
+
+export async function scoreSecretMissionGuessesForUser(input: {
+  userId: string;
+  assignments: SecretGuessAssignment[];
+}): Promise<SecretGuessScoreResult> {
+  const pendingSettlement = await getPendingSettlementForUser(input.userId);
+
+  if (!pendingSettlement) {
+    throw new ApiError("結算対象の trip がありません。", 404);
+  }
+
+  const memberships = await getTripMemberships(pendingSettlement.trip.id);
+  const memberUserIds = memberships.map((membership) => membership.user_id);
+  const memberUserIdSet = new Set(memberUserIds);
+  const missionIds = input.assignments.map((assignment) => assignment.missionId);
+
+  if (missionIds.length === 0) {
+    throw new ApiError("割り当てるミッションを選択してください。", 400);
+  }
+
+  for (const assignment of input.assignments) {
+    if (!memberUserIdSet.has(assignment.targetUserId)) {
+      throw new ApiError("不正な割り当て先が含まれています。", 400);
+    }
+  }
+
+  const missionResponse = await supabaseRestFetch(
+    `mission?select=${getMissionSelectQuery()}&id=in.(${missionIds.map(encodeURIComponent).join(",")})&user_id=in.(${memberUserIds.map(encodeURIComponent).join(",")})&access=in.(1,2)`,
+    {},
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(missionResponse, "極秘ミッションの採点に失敗しました。");
+
+  const missions = (await missionResponse.json()) as Mission[];
+  const missionById = new Map(missions.map((mission) => [String(mission.id), mission]));
+  const seenMissionIds = new Set<string>();
+  const results: SecretGuessResult[] = [];
+
+  for (const assignment of input.assignments) {
+    if (seenMissionIds.has(assignment.missionId)) {
+      continue;
+    }
+
+    seenMissionIds.add(assignment.missionId);
+    const mission = missionById.get(assignment.missionId);
+
+    if (!mission) {
+      throw new ApiError("不正なミッションが含まれています。", 400);
+    }
+
+    const correct = mission.access === 1 && mission.user_id === assignment.targetUserId;
+    const points = correct ? Math.floor(mission.point / 2) : -10;
+
+    results.push({
+      mission_id: mission.id,
+      mission_name: mission.mission_name,
+      target_user_id: assignment.targetUserId,
+      correct,
+      points,
+    });
+  }
+
+  const guessDelta = results.reduce((sum, result) => sum + result.points, 0);
+  const dummyMission = await getDummyMissionForUser(input.userId);
+
+  if (dummyMission) {
+    await updateMissionByRowId(dummyMission.id, {
+      additional: stringifyMissionText({
+        ...parseMissionText(dummyMission.additional),
+        secret_guess: {
+          guess_delta: guessDelta,
+          results,
+          completed_at: new Date().toISOString(),
+        },
+      }),
+    });
+  }
+
+  await markSettlementProgressForUser(
+    input.userId,
+    pendingSettlement.trip.id,
+    2,
+  );
+
+  const ranking = await getMissionHuntRankingForUser(input.userId);
+  const allCompleted = ranking.every((entry) => entry.hunt_completed);
+
+  return {
+    guess_delta: guessDelta,
+    results,
+    ranking,
+    all_completed: allCompleted,
+    winner_message: buildWinnerMessage(ranking),
+  };
+}
+
 export async function createTripForUser(input: {
   userId: string;
   tripName: string;
@@ -1606,11 +1924,11 @@ export async function leaveOrEndTripForUser(input: {
 
   if (isOwner) {
     await awardVoteMissionWinnersForTrip(trip.id);
-    await markSettlementPendingForTrip(trip.id);
+    await markSettlementProgressForTrip(trip.id, 1);
     return { ended: true, tripId: trip.id };
   }
 
-  await markSettlementPendingForUser(input.userId, trip.id);
+  await markSettlementProgressForUser(input.userId, trip.id, 1);
   return { ended: false, tripId: trip.id };
 }
 
@@ -1619,7 +1937,7 @@ export async function completeSettlementForUser(input: {
   tripId: string;
 }) {
   const membershipResponse = await supabaseRestFetch(
-    `user_trips?select=user_id,trip_id,settlement_pending&user_id=eq.${encodeURIComponent(input.userId)}&trip_id=eq.${encodeURIComponent(input.tripId)}&limit=1`,
+    `user_trips?select=user_id,trip_id,settlement_progress&user_id=eq.${encodeURIComponent(input.userId)}&trip_id=eq.${encodeURIComponent(input.tripId)}&limit=1`,
     {},
     { useServiceRole: true },
   );
@@ -1632,7 +1950,7 @@ export async function completeSettlementForUser(input: {
   const memberships = (await membershipResponse.json()) as Array<{
     user_id: string;
     trip_id: string;
-    settlement_pending: boolean;
+    settlement_progress: SettlementProgress;
   }>;
   const membership = memberships[0];
 
@@ -1640,7 +1958,7 @@ export async function completeSettlementForUser(input: {
     throw new ApiError("この trip の参加情報が見つかりません。", 404);
   }
 
-  if (!membership.settlement_pending) {
+  if (membership.settlement_progress < 1) {
     throw new ApiError("この trip はまだ結算対象ではありません。", 409);
   }
 

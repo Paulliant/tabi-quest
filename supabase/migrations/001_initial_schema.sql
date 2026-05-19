@@ -23,9 +23,10 @@ create table if not exists public.trips (
 create table if not exists public.user_trips (
   user_id uuid not null references public.profiles(id) on delete cascade,
   trip_id uuid not null references public.trips(id) on delete cascade,
-  settlement_pending boolean not null default false,
+  settlement_progress smallint not null default 0,
   created_at timestamptz not null default now(),
-  primary key (user_id, trip_id)
+  primary key (user_id, trip_id),
+  constraint user_trips_settlement_progress_check check (settlement_progress in (0, 1, 2))
 );
 
 create or replace function public.delete_trip_when_no_user_trips()
@@ -69,7 +70,7 @@ create table if not exists public.mission (
     foreign key (user_id)
     references public.profiles(id)
     on delete cascade,
-  constraint mission_access_check check (access in (0, 1)),
+  constraint mission_access_check check (access in (0, 1, 2)),
   constraint mission_process_check check (process in (0, 1, 2)),
   constraint mission_type_check check (mission_type in (0, 1, 2, 3)),
   constraint mission_point_check check (point between 0 and 1000)

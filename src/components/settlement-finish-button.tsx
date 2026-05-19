@@ -36,15 +36,15 @@ export default function SettlementFinishButton() {
   }
 
   return (
-    <div className="mt-8 flex flex-col items-center gap-3">
+    <div className="flex flex-col items-stretch gap-3">
       <button
         type="button"
         onClick={handleClick}
         disabled={isSubmitting}
-        className="inline-flex h-11 w-fit min-w-32 items-center justify-center gap-2 rounded-md bg-[#2f7d6b] px-6 text-sm font-bold text-white transition hover:bg-[#276452] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-[#0ea5e9] dark:hover:bg-[#0284c7]"
+        className="inline-flex h-11 min-w-32 items-center justify-center gap-2 rounded-md bg-[#2f7d6b] px-6 text-sm font-bold text-white transition hover:bg-[#276452] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-[#0ea5e9] dark:hover:bg-[#0284c7]"
       >
         <Icon name="check" />
-        {isSubmitting ? "終了処理中..." : "終了"}
+        {isSubmitting ? "終了処理中..." : "旅を終了"}
       </button>
 
       {errorMessage ? (
