@@ -37,7 +37,7 @@ function getMissionTypeLabel(mission: Mission) {
   }
 
   if (mission.mission_type === 2) {
-    return "写真";
+    return "写真付き投票";
   }
 
   if (mission.mission_type === 3) {

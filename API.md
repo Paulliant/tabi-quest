@@ -46,9 +46,9 @@ type Mission = {
   access: 0 | 1;       // 0: 共通, 1: シークレット
   point: number;
   user_id: string;
-  process: 0 | 1 | 2;  // 0: 未完了, 1: 実装上予約, 2: 完了
+  process: 0 | 1 | 2;  // 0: 未完了, 1: 写真アップロード済み, 2: 完了
   mission_type: 0 | 1 | 2 | 3;
-  extra_data: string | null;
+  vote: number | string | null;
   additional: string | null;
   created_at: string;
 };
@@ -394,8 +394,8 @@ Response `200`:
       "user_id": "uuid",
       "process": 0,
       "mission_type": 2,
-      "extra_data": null,
-      "additional": "{\"generation_mode\":\"fixed\",\"generation_source\":\"fixed_common_default\",\"trip_id\":\"uuid\"}",
+      "vote": 0,
+      "additional": "",
       "created_at": "2026-04-28T00:00:00Z"
     }
   ]
@@ -420,9 +420,7 @@ Request:
 ```json
 {
   "missionId": "1",
-  "extraData": {
-    "photoUrl": "https://example.com/photo.jpg"
-  },
+  "vote": 1,
   "additional": {
     "memo": "達成メモ"
   }
@@ -432,7 +430,8 @@ Request:
 Request fields:
 
 - `missionId`: 必須。実装上は `mission.id` の値を文字列として受け取ります。
-- `extraData`: 任意。指定されると JSON 文字列化して `extra_data` に保存します。未指定の場合は既存値を維持します。
+- `vote`: 任意。数値または文字列の場合のみ `vote` に保存します。未指定または不正値の場合は既存値を維持します。
+- `extraData`: 任意。旧フィールドです。`vote` が未指定の場合のみ同じルールで `vote` に保存します。
 - `additional`: 任意。オブジェクトの場合のみ既存 `additional` にマージされます。
 
 Response `200`:

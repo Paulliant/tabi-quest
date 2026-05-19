@@ -8,11 +8,13 @@ type IconName =
   | "map"
   | "medal"
   | "moon"
+  | "photo"
   | "settings"
   | "spark"
   | "sun"
   | "target"
-  | "user";
+  | "user"
+  | "vote";
 
 export function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
@@ -75,6 +77,9 @@ export function Icon({ name, className = "h-4 w-4" }: { name: IconName; classNam
     moon: (
       <path d="M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5 9 9 0 1 0 20.5 15.5Z" strokeLinecap="round" strokeLinejoin="round" />
     ),
+    photo: (
+      <path d="M4 7a2 2 0 0 1 2-2h2l1.5-2h5L16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Zm4 7a4 4 0 1 0 8 0 4 4 0 0 0-8 0Z" strokeLinecap="round" strokeLinejoin="round" />
+    ),
     settings: (
       <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-5v3m0 12v3M4.2 4.2l2.1 2.1m11.4 11.4 2.1 2.1M1 12h3m16 0h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" strokeLinecap="round" strokeLinejoin="round" />
     ),
@@ -89,6 +94,9 @@ export function Icon({ name, className = "h-4 w-4" }: { name: IconName; classNam
     ),
     user: (
       <path d="M20 21a8 8 0 0 0-16 0m12-13a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" strokeLinecap="round" strokeLinejoin="round" />
+    ),
+    vote: (
+      <path d="M5 9h14l-2 12H7L5 9Zm3-4h8l3 4H5l3-4Zm2 9 2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
     ),
   };
 

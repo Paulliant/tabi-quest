@@ -14,6 +14,7 @@ type MissionCompleteButtonProps = {
 export default function MissionCompleteButton({
   missionId,
   process,
+  missionType = 0,
 }: MissionCompleteButtonProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -31,7 +32,6 @@ export default function MissionCompleteButton({
         },
         body: JSON.stringify({
           missionId,
-          extraData: {},
           additional: {},
         }),
       });
@@ -55,11 +55,26 @@ export default function MissionCompleteButton({
 
   const isDone = process === 2;
   const disabled = isSubmitting || isDone;
+  const activeStep =
+    missionType === 2 && process === 0
+      ? {
+          label: "写真アップロード",
+          icon: "photo" as const,
+        }
+      : missionType === 1 || (missionType === 2 && process === 1)
+        ? {
+            label: "投票",
+            icon: "vote" as const,
+          }
+        : {
+            label: "完了する",
+            icon: "target" as const,
+          };
   const label = isSubmitting
     ? "処理中..."
     : isDone
       ? "完了済み"
-      : "完了する";
+      : activeStep.label;
 
   return (
     <div className="grid gap-2">
@@ -73,7 +88,7 @@ export default function MissionCompleteButton({
             : "bg-[#2f7d6b] text-white hover:bg-[#276452] dark:bg-[#0ea5e9] dark:hover:bg-[#0284c7]"
         } disabled:cursor-not-allowed disabled:opacity-75`}
       >
-        <Icon name={isDone ? "check" : "target"} />
+        <Icon name={isDone ? "check" : activeStep.icon} />
         {label}
       </button>
 

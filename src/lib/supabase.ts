@@ -34,6 +34,7 @@ export type Trip = {
 export type MissionAccess = 0 | 1;
 export type MissionProcess = 0 | 1 | 2;
 export type MissionType = 0 | 1 | 2 | 3;
+export type MissionVote = number | string | null;
 type JsonObject = Record<string, unknown>;
 
 export type Mission = {
@@ -46,7 +47,7 @@ export type Mission = {
   user_id: string;
   process: MissionProcess;
   mission_type: MissionType;
-  extra_data: string | null;
+  vote: MissionVote;
   additional: string | null;
   created_at: string;
 };
@@ -106,10 +107,6 @@ type MissionDraft = {
   point: number;
   process: MissionProcess;
   mission_type: MissionType;
-  extra_data?: JsonObject | string | null;
-  additional?: JsonObject | string | null;
-  generation_mode?: "fixed" | "gpt" | "copy";
-  generation_source?: string;
 };
 
 const COMMON_MISSION_COUNT = 3;
@@ -210,6 +207,18 @@ function stringifyMissionText(value: unknown) {
   return JSON.stringify(normalizeJsonObject(value));
 }
 
+function normalizeMissionVote(value: unknown, fallback: MissionVote = 0) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    return value;
+  }
+
+  return fallback;
+}
+
 function parseMissionText(value: string | null) {
   if (!value) {
     return {};
@@ -221,14 +230,6 @@ function parseMissionText(value: string | null) {
   } catch {
     return {};
   }
-}
-
-function normalizeMissionTextObject(value: JsonObject | string | null | undefined) {
-  if (typeof value === "string") {
-    return parseMissionText(value);
-  }
-
-  return normalizeJsonObject(value);
 }
 
 function requireUserId(user: AuthUser | null | undefined, message: string) {
@@ -718,7 +719,7 @@ function getMissionSelectQuery() {
     "user_id",
     "process",
     "mission_type",
-    "extra_data",
+    "vote",
     "additional",
     "created_at",
   ].join(",");
@@ -768,16 +769,6 @@ async function getGeneratedCommonMissionDrafts(trip: Trip) {
       point: normalizeGeneratedPoint(mission.points),
       process: 0 as MissionProcess,
       mission_type: normalizeGeneratedMissionType(clearMethod),
-      extra_data: {
-        generated_type: mission.type1,
-      },
-      additional: {
-        clear_method: Number.isFinite(clearMethod) ? clearMethod : 0,
-        generation_source: "gpt_common",
-        trip_id: trip.id,
-      },
-      generation_mode: "gpt",
-      generation_source: "gpt_common",
     } satisfies MissionDraft;
   });
 
@@ -813,18 +804,6 @@ async function getGeneratedSecretMissionDrafts(input: {
       point: normalizeGeneratedPoint(mission.points),
       process: 0 as MissionProcess,
       mission_type: normalizeGeneratedMissionType(clearMethod),
-      extra_data: {
-        generated_type: mission.type1,
-        player_name: profile.display_name,
-      },
-      additional: {
-        clear_method: Number.isFinite(clearMethod) ? clearMethod : 0,
-        generation_source: "gpt_secret",
-        user_id: input.userId,
-        trip_id: input.trip.id,
-      },
-      generation_mode: "gpt",
-      generation_source: "gpt_secret",
     } satisfies MissionDraft;
   });
 
@@ -836,44 +815,21 @@ async function getGeneratedSecretMissionDrafts(input: {
 }
 
 async function insertMissionDrafts(input: {
-  trip: Trip;
   userId: string;
   drafts: MissionDraft[];
-  generationMode?: "fixed" | "gpt" | "copy";
-  generationSource: string;
 }) {
-  const rows = input.drafts.map((draft) => {
-    const additional = normalizeMissionTextObject(draft.additional);
-    const generationMode =
-      draft.generation_mode ??
-      (typeof additional.generation_mode === "string"
-        ? additional.generation_mode
-        : input.generationMode) ??
-      "fixed";
-    const generationSource =
-      draft.generation_source ??
-      (typeof additional.generation_source === "string"
-        ? additional.generation_source
-        : input.generationSource);
-
-    return {
-      mission_id: draft.mission_id ?? createMissionGroupId(),
-      mission_name: draft.mission_name.trim(),
-      mission_description: draft.mission_description.trim(),
-      access: draft.access,
-      point: draft.point,
-      user_id: input.userId,
-      process: draft.process,
-      mission_type: draft.mission_type,
-      extra_data: stringifyMissionText(draft.extra_data),
-      additional: stringifyMissionText({
-        ...additional,
-        generation_mode: generationMode,
-        generation_source: generationSource,
-        trip_id: input.trip.id,
-      }),
-    };
-  });
+  const rows = input.drafts.map((draft) => ({
+    mission_id: draft.mission_id ?? createMissionGroupId(),
+    mission_name: draft.mission_name.trim(),
+    mission_description: draft.mission_description.trim(),
+    access: draft.access,
+    point: draft.point,
+    user_id: input.userId,
+    process: draft.process,
+    mission_type: draft.mission_type,
+    vote: 0,
+    additional: "",
+  }));
 
   const response = await supabaseRestFetch(
     "mission",
@@ -902,13 +858,6 @@ function missionToDraft(mission: Mission): MissionDraft {
     point: mission.point,
     process: 0,
     mission_type: mission.mission_type,
-    extra_data: mission.extra_data,
-    additional: {
-      ...parseMissionText(mission.additional),
-      copied_from_mission_row_id: mission.id,
-    },
-    generation_mode: "copy",
-    generation_source: "owner_common_copy",
   };
 }
 
@@ -971,20 +920,12 @@ export async function createMissionsForTripUser(input: {
   }
 
   const commonMissions = await insertMissionDrafts({
-    trip: input.trip,
     userId: input.userId,
     drafts: commonDrafts,
-    generationMode: input.copyCommonFromOwner ? "copy" : "gpt",
-    generationSource: input.copyCommonFromOwner
-      ? "owner_common_copy"
-      : "gpt_common",
   });
   const secretMissions = await insertMissionDrafts({
-    trip: input.trip,
     userId: input.userId,
     drafts: secretDrafts,
-    generationMode: "gpt",
-    generationSource: "gpt_secret",
   });
 
   return {
@@ -1027,6 +968,7 @@ export async function listMissionsForUser(userId: string) {
 export async function completeMissionForUser(input: {
   userId: string;
   missionId: string;
+  vote?: unknown;
   extraData?: unknown;
   additional?: unknown;
 }) {
@@ -1055,6 +997,10 @@ export async function completeMissionForUser(input: {
     throw new ApiError("このミッションはすでに完了しています。", 409);
   }
 
+  const nextProcess: MissionProcess =
+    mission.mission_type === 2 && mission.process === 0 ? 1 : 2;
+  const now = new Date().toISOString();
+
   const updateResponse = await supabaseRestFetch(
     `mission?id=eq.${encodeURIComponent(String(mission.id))}`,
     {
@@ -1064,13 +1010,20 @@ export async function completeMissionForUser(input: {
         Prefer: "return=representation",
       },
       body: JSON.stringify({
-        process: 2,
-        extra_data: stringifyMissionText(input.extraData ?? mission.extra_data),
+        process: nextProcess,
+        vote: normalizeMissionVote(input.vote ?? input.extraData, mission.vote),
         additional: stringifyMissionText({
           ...parseMissionText(mission.additional),
           ...normalizeJsonObject(input.additional),
-          completed_by: input.userId,
-          completed_at: new Date().toISOString(),
+          ...(nextProcess === 2
+            ? {
+                completed_by: input.userId,
+                completed_at: now,
+              }
+            : {
+                photo_uploaded_by: input.userId,
+                photo_uploaded_at: now,
+              }),
         }),
       }),
     },

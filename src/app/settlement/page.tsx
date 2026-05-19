@@ -39,7 +39,7 @@ function getMissionTypeLabel(missionType: number) {
   }
 
   if (missionType === 2) {
-    return "写真";
+    return "写真付き投票";
   }
 
   if (missionType === 3) {
