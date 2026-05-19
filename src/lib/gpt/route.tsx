@@ -35,7 +35,7 @@ export type GeneratedMissionResponse = {
 
 const MISSION_POINT_VALUES = [10, 20, 30, 40, 50] as const;
 
-const MISSION_CLEAR_METHODS = [0, 1, 2, 3] as const;
+const MISSION_CLEAR_METHODS = [0, 1, 2] as const;
 
 function getOpenAIApiKey() {
 	const envKey = process.env.OPENAI_API_KEY?.trim();
@@ -145,7 +145,7 @@ function getMissionModePrompt(mode: MissionGenerationInput["generationMode"]) {
 			"あなたは旅行を盛り上げるミッション生成AIです。",
 			"ユーザーから『旅行名』と『自由記述』が与えられます。",
 			"それをもとに、個人にだけ与えられる極秘ミッションを生成してください。",
-			"個人で実行できる内容にし、他メンバーにバレない範囲で実行できるようにしてください。",
+			"ミッションは実行可能な内容にしつつ、他メンバーに気づかれるか気づかれないかの絶妙なラインで実施してください。",
 			"安全で倫理的に問題のない内容のみを生成してください。",
 		].join("\n");
 	}
@@ -154,6 +154,7 @@ function getMissionModePrompt(mode: MissionGenerationInput["generationMode"]) {
 		"あなたは旅行を盛り上げるミッション生成AIです。",
 		"ユーザーから『旅行名』と『自由記述』が与えられます。",
 		"それをもとに、旅行中に実行できる共通ミッションを生成してください。",
+		"全員で競い合いながら達成できる内容にしてください。",
 		"安全で倫理的に問題のない内容のみを生成してください。",
 	].join("\n");
 }
@@ -199,7 +200,7 @@ function parseMissionResponseText(content: string): GeneratedMissionResponse {
 		}
 
 		if (!MISSION_CLEAR_METHODS.includes(clearMethod as (typeof MISSION_CLEAR_METHODS)[number])) {
-			throw new Error("クリア方法は 0〜3 の数値である必要があります。");
+			throw new Error("クリア方法は 0〜2 の数値である必要があります。");
 		}
 
 		return {
@@ -282,7 +283,7 @@ async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 						"# 目的",
 						input.generationMode === "secret"
 							? "- 個人ごとに違う行動を促してゲーム性を高める"
-							: "- 全員で協力・共有して楽しめる体験を作る",
+							: "- 全員で競い合いながら楽しめるミッションを作る",
 						"- 観光・行動・発見・軽い交流の要素を含める",
 						"- 安全で倫理的に問題のない内容のみを生成する",
 						"",
@@ -312,10 +313,10 @@ async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 						missionLabel,
 						"",
 						"ポイント：",
-						"（10,20,30,40,50の数値）",
+						"(10,20,30,40,50の数値)",
 						"",
 						"クリア方法：",
-						"（0〜3の数値）",
+						"(0〜2の数値)",
 						"",
 						"---（区切り線として必ず出力）",
 						"",
@@ -325,26 +326,29 @@ async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 							: `- 共通ミッションは${missionCount}個生成する`,
 						input.generationMode === "secret"
 							? "- 個人で実行できる内容にする"
-							: "- 全員で同時または協力して達成できる内容にする",
+							: "- 全員で競い合いながら達成できる内容にする",
 						"- 内容はバリエーションを持たせる",
 						input.generationMode === "secret"
 							? "- 迷惑にならない範囲で行動する内容にする"
 							: "",
 						input.generationMode === "secret"
-							? "- 行き先がわかるなら行先に関連したミッションにする"
-							: "",
+							? "- 旅行名に関連したミッションを入れる"
+							: "- 旅行名に関連したミッションを入れる",
 						"",
+						input.generationMode === "secret"
+							? "一部は自由記述を参考にしたミッションにしてください。"
+							: "一部は自由記述を参考にしたミッションにしてください。",
 						"# クリア方法",
 						input.generationMode === "secret"
-							? ["0：そのまま完了", "1：投票", "2：写真付き投票", "3：位置情報で判定"]
+							? ["0：そのまま完了", "1：投票", "2：写真付き投票"]
 							: ["0：そのまま完了", "1：投票", "2：写真付き投票"],
 						"",
 						"# 入力",
 						`旅行名: ${input.tripTitle ?? "（未指定）"}`,
 						`自由記述: ${travelText}`,
 						input.generationMode === "secret"
-							? "- 極秘ミッションは3個生成する"
-							: "",
+							? "極秘ミッションは3個生成する"
+							: "共通ミッションは3個生成する",
 						"",
 					]
 						.filter(Boolean)
