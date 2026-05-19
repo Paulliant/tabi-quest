@@ -106,9 +106,6 @@ export default function MissionVotePanel({
                   </span>
                 ) : null}
               </div>
-              <p className="mt-1 text-sm text-[#5d6a63] dark:text-[#93a4b8]">
-                @{candidate.username}
-              </p>
               {candidate.can_vote ? (
                 <p className="mt-3 text-sm font-semibold text-[#2f7d6b] dark:text-[#2dd4bf]">
                   投票できます

@@ -118,7 +118,7 @@ export default async function Home() {
                 </p>
               ) : (
                 <p className="mt-3 max-w-xl text-sm leading-6 text-[#5d6a63] dark:text-[#93a4b8]">
-                  新しい旅を作成するか、旅 ID を入力して既存の旅に参加してください。
+                  旅を作成するか、旅 ID を入力して既存の旅に参加してください。
                 </p>
               )}
             </div>
