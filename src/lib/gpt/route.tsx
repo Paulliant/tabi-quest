@@ -59,7 +59,7 @@ function getOpenAIApiKey() {
 }
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
-const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-5.4-nano";
 const OPENAI_REQUEST_TIMEOUT_MS = 30_000;
 const OPENAI_MAX_RETRY_WINDOW_MS = 55_000;
 const OPENAI_RETRY_DELAY_MS = 1_000;
@@ -459,8 +459,8 @@ async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 									? "- 極秘ミッションは実行可能な内容にしつつ、他メンバーに気づかれるか気づかれないかの絶妙なラインで実施してください。"
 									: "共通ミッションはクリア方法が1,2のものに限る",
 								input.generationMode === "secret"
-									? "- points は 10,20,30,40,50 のいずれかで、極秘ミッションはバレやすさに応じて高ポイントにする傾向で出力してください。"
-									: "- points は 10,20,30,40,50 のいずれかで、共通ミッションは面白さや難易度に応じて高ポイントにする傾向で出力してください。",
+									? "- points は 30,40,50 のいずれかで、極秘ミッションはバレやすさに応じて高ポイントにする傾向で出力してください。"
+									: "- points は 30,40,50 のいずれかで、共通ミッションは面白さや難易度に応じて高ポイントにする傾向で出力してください。",
 								"- missionName は短く具体的にする",
 								"- description は1〜2文で具体的に書く",
 								"- type1 は内容分類の短い文字列にする",
