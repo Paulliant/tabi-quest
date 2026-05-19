@@ -9,15 +9,17 @@ import {
   StatTile,
 } from "@/components/app-ui";
 import ThemeToggleButton from "@/components/theme-toggle-button";
-import MissionCompleteButton from "@/components/mission-complete-button";
+import MissionActionPanel from "@/components/mission-action-panel";
 import TripLeaveButton from "@/components/trip-leave-button";
 import LogoutButton from "@/components/logout-button";
 import TripEntryPanel from "@/components/trip-entry-panel";
 import {
   getCurrentProfileFromCookies,
   getRankingForUser,
+  getMissionVoteViewForUser,
   getPendingSettlementForUser,
   listMissionsForUser,
+  parseMissionAdditional,
   type Mission,
   type MissionAccess,
 } from "@/lib/supabase";
@@ -65,6 +67,25 @@ export default async function Home() {
     getRankingForUser(profile.id),
   ]);
   const ranking = rankingResult.ranking;
+  const voteViews = trip
+    ? await Promise.all(
+        missions
+          .filter(
+            (mission) =>
+              mission.access === 0 &&
+              (mission.mission_type === 1 || mission.mission_type === 2),
+          )
+          .map((mission) =>
+            getMissionVoteViewForUser({
+              userId: profile.id,
+              missionId: String(mission.id),
+            }),
+          ),
+      )
+    : [];
+  const voteViewByMissionId = new Map(
+    voteViews.map((voteView) => [voteView.mission.id, voteView]),
+  );
   const rankingPositions = buildCompetitionRanks(ranking);
   const myRankingIndex = ranking.findIndex((user) => user.user_id === profile.id);
   const myRanking = myRankingIndex >= 0 ? ranking[myRankingIndex] : null;
@@ -143,7 +164,15 @@ export default async function Home() {
               />
 
               <div className="mt-5 grid gap-4">
-                {missions.length > 0 ? missions.map((mission) => (
+                {missions.length > 0 ? missions.map((mission) => {
+                  const additional = parseMissionAdditional(mission.additional);
+                  const photoBase64 =
+                    typeof additional.photo_base64 === "string"
+                      ? additional.photo_base64
+                      : null;
+                  const voteView = voteViewByMissionId.get(mission.id);
+
+                  return (
                   <article
                     key={mission.id}
                     className="grid gap-4 rounded-md border border-[#e0e6df] bg-[#fbfcf8] p-4 dark:border-[#26364f] dark:bg-[#0b1626] sm:grid-cols-[1fr_auto] sm:items-center"
@@ -167,13 +196,19 @@ export default async function Home() {
                       </p>
                     </div>
 
-                    <MissionCompleteButton
+                    <MissionActionPanel
                       missionId={String(mission.id)}
                       process={mission.process}
                       missionType={mission.mission_type}
+                      photoBase64={photoBase64}
+                      selectedTargetUserId={
+                        voteView?.selected_target_user_id ?? null
+                      }
+                      voteCandidates={voteView?.candidates ?? []}
                     />
                   </article>
-                )) : (
+                  );
+                }) : (
                   <div className="rounded-md border border-[#e0e6df] bg-[#fbfcf8] p-5 dark:border-[#26364f] dark:bg-[#0b1626]">
                     <p className="font-bold text-[#14231f] dark:text-[#e6edf7]">
                       まだミッションがありません

@@ -17,6 +17,7 @@ import {
   getMissionsForTripUser,
   getPendingSettlementForUser,
   getSettlementRankingForUser,
+  parseMissionAdditional,
   type MissionAccess,
   type MissionProcess,
 } from "@/lib/supabase";
@@ -73,10 +74,20 @@ export default async function SettlementPage() {
   const rankingPositions = buildCompetitionRanks(ranking);
   const completedMissions = missions.filter((mission) => mission.process === 2);
   const completedCount = completedMissions.length;
-  const totalPoints = completedMissions.reduce(
-    (sum, mission) => sum + mission.point,
-    0,
-  );
+  const totalPoints = completedMissions.reduce((sum, mission) => {
+    const isVoteMission =
+      mission.mission_type === 1 || mission.mission_type === 2;
+    const additional = parseMissionAdditional(mission.additional);
+
+    if (
+      isVoteMission &&
+      typeof additional.vote_awarded_at !== "string"
+    ) {
+      return sum;
+    }
+
+    return sum + mission.point;
+  }, 0);
 
   return (
     <AppShell>
