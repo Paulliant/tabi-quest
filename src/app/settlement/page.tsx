@@ -119,23 +119,20 @@ export default async function SettlementPage() {
           <StatTile
             label="プレイヤー"
             value={profile.display_name}
-            detail={`@${profile.username}`}
             icon="user"
             tone="green"
           />
           <StatTile
-            label="完了タスク"
-            value={`${completedCount}/${missions.length}`}
-            detail="今回の旅で達成したミッション"
-            icon="check"
-            tone="blue"
-          />
-          <StatTile
-            label="獲得ポイント"
+            label="現在スコア"
             value={totalPoints}
-            detail="完了済みミッションの合計"
             icon="medal"
             tone="amber"
+          />
+          <StatTile
+            label="進行状況"
+            value={`${completedCount}/${missions.length}`}
+            icon="target"
+            tone="blue"
           />
         </section>
 

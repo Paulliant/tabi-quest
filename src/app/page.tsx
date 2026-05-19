@@ -86,12 +86,9 @@ export default async function Home() {
   const voteViewByMissionId = new Map(
     voteViews.map((voteView) => [voteView.mission.id, voteView]),
   );
-  const rankingPositions = buildCompetitionRanks(ranking);
   const myRankingIndex = ranking.findIndex((user) => user.user_id === profile.id);
   const myRanking = myRankingIndex >= 0 ? ranking[myRankingIndex] : null;
-  const myRankingPosition =
-    myRankingIndex >= 0 ? rankingPositions[myRankingIndex] : null;
-  const totalPoints = missions.reduce((sum, mission) => sum + mission.point, 0);
+  const rankingPositions = buildCompetitionRanks(ranking);
   const completedCount = missions.filter((mission) => mission.process === 2).length;
 
   return (
@@ -130,25 +127,18 @@ export default async function Home() {
           <StatTile
             label="プレイヤー"
             value={profile.display_name}
-            detail={`@${profile.username}・参加中`}
             icon="user"
             tone="green"
           />
           <StatTile
             label="現在スコア"
             value={trip ? myRanking?.points ?? 0 : "--"}
-            detail={
-              trip && myRankingPosition
-                ? `${myRankingPosition}位 / ${ranking.length}人`
-                : "旅に参加すると表示"
-            }
             icon="medal"
             tone="amber"
           />
           <StatTile
             label="進行状況"
             value={trip ? `${completedCount}/${missions.length}` : "--"}
-            detail={trip ? `獲得可能 ${totalPoints} pt` : "旅に参加すると表示"}
             icon="target"
             tone="blue"
           />

@@ -209,23 +209,21 @@ export function StatTile({
   }[tone];
 
   return (
-    <div className="grid min-h-28 grid-rows-[2rem_1fr_2rem] rounded-md border border-[#e0e6df] bg-white p-4 dark:border-[#26364f] dark:bg-[#0f1b2d]">
+    <div className="flex min-h-24 flex-col gap-3 rounded-md border border-[#e0e6df] bg-white p-4 dark:border-[#26364f] dark:bg-[#0f1b2d]">
       <div className="flex items-start justify-between gap-3">
         <p className="text-xs font-bold uppercase text-[#66736c] dark:text-[#93a4b8]">{label}</p>
         <span className={`grid h-8 w-8 place-items-center rounded-md ${toneClass}`}>
           <Icon name={icon} />
         </span>
       </div>
-      <div className="flex items-center">
-        <p className="break-words text-3xl font-bold leading-none text-[#14231f] dark:text-[#e6edf7]">
+      <div className="flex flex-1 items-center justify-start">
+        <p className="break-words text-left text-3xl font-bold leading-none text-[#14231f] dark:text-[#e6edf7]">
           {value}
         </p>
       </div>
-      <div className="flex items-end">
-        {detail ? (
-          <p className="text-sm leading-5 text-[#5d6a63] dark:text-[#93a4b8]">{detail}</p>
-        ) : null}
-      </div>
+      {detail ? (
+        <p className="text-sm leading-5 text-[#5d6a63] dark:text-[#93a4b8]">{detail}</p>
+      ) : null}
     </div>
   );
 }

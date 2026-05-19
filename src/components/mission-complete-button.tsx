@@ -5,6 +5,7 @@ import type { ChangeEvent } from "react";
 import { useRef, useState } from "react";
 
 import { Icon } from "@/components/app-ui";
+import { photoInputAccept, preparePhotoUpload } from "@/lib/photo-upload";
 
 type MissionCompleteButtonProps = {
   missionId: string;
@@ -66,23 +67,6 @@ export default function MissionCompleteButton({
     void submitMission();
   }
 
-  function readFileAsDataUrl(file: File) {
-    return new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          resolve(reader.result);
-          return;
-        }
-
-        reject(new Error("写真の読み込みに失敗しました。"));
-      };
-      reader.onerror = () => reject(new Error("写真の読み込みに失敗しました。"));
-      reader.readAsDataURL(file);
-    });
-  }
-
   async function handlePhotoSelected(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -91,19 +75,14 @@ export default function MissionCompleteButton({
       return;
     }
 
-    if (!file.type.startsWith("image/")) {
-      setErrorMessage("画像ファイルを選択してください。");
-      return;
-    }
-
     try {
-      const dataUrl = await readFileAsDataUrl(file);
-      const [, photoBase64 = dataUrl] = dataUrl.split(",", 2);
+      const photo = await preparePhotoUpload(file);
 
       await submitMission({
-        photo_base64: photoBase64,
-        photo_mime_type: file.type,
-        photo_name: file.name,
+        photo_base64: photo.dataUrl,
+        photo_mime_type: photo.type,
+        photo_name: photo.name,
+        photo_size: photo.size,
       });
     } catch (error) {
       setErrorMessage(
@@ -143,7 +122,7 @@ export default function MissionCompleteButton({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept={photoInputAccept}
           className="sr-only"
           onChange={handlePhotoSelected}
           disabled={disabled}

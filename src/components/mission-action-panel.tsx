@@ -5,6 +5,7 @@ import { ChangeEvent, useRef, useState } from "react";
 
 import { Icon } from "@/components/app-ui";
 import MissionVotePanel from "@/components/mission-vote-panel";
+import { photoInputAccept, preparePhotoUpload } from "@/lib/photo-upload";
 import type { MissionVoteCandidate } from "@/lib/supabase";
 
 type MissionActionPanelProps = {
@@ -74,19 +75,7 @@ export default function MissionActionPanel({
     setIsSubmitting(true);
 
     try {
-      const photoBase64Value = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (typeof reader.result === "string") {
-            resolve(reader.result);
-            return;
-          }
-
-          reject(new Error("写真を読み込めませんでした。"));
-        };
-        reader.onerror = () => reject(new Error("写真を読み込めませんでした。"));
-        reader.readAsDataURL(file);
-      });
+      const photo = await preparePhotoUpload(file);
 
       const response = await fetch("/api/missions/complete", {
         method: "POST",
@@ -96,10 +85,10 @@ export default function MissionActionPanel({
         body: JSON.stringify({
           missionId,
           additional: {
-            photo_base64: photoBase64Value,
-            photo_name: file.name,
-            photo_type: file.type,
-            photo_size: file.size,
+            photo_base64: photo.dataUrl,
+            photo_name: photo.name,
+            photo_type: photo.type,
+            photo_size: photo.size,
           },
         }),
       });
@@ -191,7 +180,7 @@ export default function MissionActionPanel({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept={photoInputAccept}
               onChange={uploadPhoto}
               className="hidden"
             />
