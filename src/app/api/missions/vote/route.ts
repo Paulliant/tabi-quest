@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const profile = await requireCurrentProfileFromCookies();
     const body = (await request.json()) as {
       missionId?: string;
-      approved?: boolean;
+      targetUserId?: string;
     };
 
     if (!body.missionId) {
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     const result = await voteMissionForUser({
       userId: profile.id,
       missionId: body.missionId,
-      approved: body.approved ?? true,
+      targetUserId: body.targetUserId ?? "",
     });
 
     return NextResponse.json(result);

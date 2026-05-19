@@ -34,7 +34,7 @@ export type Trip = {
 export type MissionAccess = 0 | 1;
 export type MissionProcess = 0 | 1 | 2;
 export type MissionType = 0 | 1 | 2 | 3;
-export type MissionVote = number | string | null;
+export type MissionVote = number;
 type JsonObject = Record<string, unknown>;
 
 export type Mission = {
@@ -107,6 +107,24 @@ type MissionDraft = {
   point: number;
   process: MissionProcess;
   mission_type: MissionType;
+};
+
+export type MissionVoteCandidate = {
+  user_id: string;
+  username: string;
+  display_name: string;
+  is_me: boolean;
+  process: MissionProcess;
+  photo_base64: string | null;
+  photo_name: string | null;
+  can_vote: boolean;
+};
+
+export type MissionVoteView = {
+  trip: Trip;
+  mission: Mission;
+  selected_target_user_id: string | null;
+  candidates: MissionVoteCandidate[];
 };
 
 const COMMON_MISSION_COUNT = 3;
@@ -209,11 +227,11 @@ function stringifyMissionText(value: unknown) {
 
 function normalizeMissionVote(value: unknown, fallback: MissionVote = 0) {
   if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
+    return Math.max(0, Math.trunc(value));
   }
 
-  if (typeof value === "string" && value.trim()) {
-    return value;
+  if (typeof value === "string" && /^-?\d+$/.test(value.trim())) {
+    return Math.max(0, Number(value.trim()));
   }
 
   return fallback;
@@ -230,6 +248,14 @@ function parseMissionText(value: string | null) {
   } catch {
     return {};
   }
+}
+
+export function parseMissionAdditional(value: string | null) {
+  return parseMissionText(value);
+}
+
+function getStringValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 function requireUserId(user: AuthUser | null | undefined, message: string) {
@@ -745,6 +771,10 @@ function normalizeGeneratedMissionType(clearMethod: number): MissionType {
   return 0;
 }
 
+function getInitialMissionProcess(missionType: MissionType): MissionProcess {
+  return missionType === 1 ? 1 : 0;
+}
+
 function normalizeGeneratedPoint(point: number) {
   const allowedPoints = [10, 20, 30, 40, 50];
 
@@ -760,6 +790,7 @@ async function getGeneratedCommonMissionDrafts(trip: Trip) {
 
   const drafts = result.missions.slice(0, COMMON_MISSION_COUNT).map((mission) => {
     const clearMethod = Number(mission.additional[0]);
+    const missionType = normalizeGeneratedMissionType(clearMethod);
 
     return {
       mission_id: createMissionGroupId(),
@@ -767,8 +798,8 @@ async function getGeneratedCommonMissionDrafts(trip: Trip) {
       mission_description: mission.description,
       access: 0 as MissionAccess,
       point: normalizeGeneratedPoint(mission.points),
-      process: 0 as MissionProcess,
-      mission_type: normalizeGeneratedMissionType(clearMethod),
+      process: getInitialMissionProcess(missionType),
+      mission_type: missionType,
     } satisfies MissionDraft;
   });
 
@@ -795,6 +826,7 @@ async function getGeneratedSecretMissionDrafts(input: {
 
   const drafts = result.missions.slice(0, SECRET_MISSION_COUNT).map((mission) => {
     const clearMethod = Number(mission.additional[0]);
+    const missionType = normalizeGeneratedMissionType(clearMethod);
 
     return {
       mission_id: createMissionGroupId(),
@@ -802,8 +834,8 @@ async function getGeneratedSecretMissionDrafts(input: {
       mission_description: mission.description,
       access: 1 as MissionAccess,
       point: normalizeGeneratedPoint(mission.points),
-      process: 0 as MissionProcess,
-      mission_type: normalizeGeneratedMissionType(clearMethod),
+      process: getInitialMissionProcess(missionType),
+      mission_type: missionType,
     } satisfies MissionDraft;
   });
 
@@ -825,7 +857,7 @@ async function insertMissionDrafts(input: {
     access: draft.access,
     point: draft.point,
     user_id: input.userId,
-    process: draft.process,
+    process: getInitialMissionProcess(draft.mission_type),
     mission_type: draft.mission_type,
     vote: 0,
     additional: "",
@@ -856,7 +888,7 @@ function missionToDraft(mission: Mission): MissionDraft {
     mission_description: mission.mission_description,
     access: mission.access,
     point: mission.point,
-    process: 0,
+    process: getInitialMissionProcess(mission.mission_type),
     mission_type: mission.mission_type,
   };
 }
@@ -872,6 +904,73 @@ export async function getMissionsForTripUser(input: {
   );
 
   await ensureResponseOk(response, "ミッション一覧の取得に失敗しました。");
+
+  return (await response.json()) as Mission[];
+}
+
+async function getMissionByRowId(missionId: string) {
+  const response = await supabaseRestFetch(
+    `mission?select=${getMissionSelectQuery()}&id=eq.${encodeURIComponent(missionId)}&limit=1`,
+    {},
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "ミッションの取得に失敗しました。");
+
+  const rows = (await response.json()) as Mission[];
+  const mission = rows[0];
+
+  if (!mission) {
+    throw new ApiError("指定されたミッションが見つかりません。", 404);
+  }
+
+  return mission;
+}
+
+async function updateMissionByRowId(
+  missionId: number,
+  payload: Partial<Pick<Mission, "process" | "vote" | "additional">>,
+) {
+  const response = await supabaseRestFetch(
+    `mission?id=eq.${encodeURIComponent(String(missionId))}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify(payload),
+    },
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "ミッションの更新に失敗しました。");
+
+  const rows = (await response.json()) as Mission[];
+  const mission = rows[0];
+
+  if (!mission) {
+    throw new ApiError("更新したミッションを取得できませんでした。", 500);
+  }
+
+  return mission;
+}
+
+async function getMissionRowsForMembers(input: {
+  missionGroupId: string;
+  userIds: string[];
+}) {
+  if (input.userIds.length === 0) {
+    return [];
+  }
+
+  const response = await supabaseRestFetch(
+    `mission?select=${getMissionSelectQuery()}&mission_id=eq.${encodeURIComponent(input.missionGroupId)}&user_id=in.(${input.userIds.map(encodeURIComponent).join(",")})`,
+    {},
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "投票対象ミッションの取得に失敗しました。");
 
   return (await response.json()) as Mission[];
 }
@@ -972,20 +1071,7 @@ export async function completeMissionForUser(input: {
   extraData?: unknown;
   additional?: unknown;
 }) {
-  const response = await supabaseRestFetch(
-    `mission?select=${getMissionSelectQuery()}&id=eq.${encodeURIComponent(input.missionId)}&limit=1`,
-    {},
-    { useServiceRole: true },
-  );
-
-  await ensureResponseOk(response, "ミッションの取得に失敗しました。");
-
-  const rows = (await response.json()) as Mission[];
-  const mission = rows[0];
-
-  if (!mission) {
-    throw new ApiError("指定されたミッションが見つかりません。", 404);
-  }
+  const mission = await getMissionByRowId(input.missionId);
 
   const trip = await getTripForUser(input.userId);
 
@@ -997,61 +1083,189 @@ export async function completeMissionForUser(input: {
     throw new ApiError("このミッションはすでに完了しています。", 409);
   }
 
-  const nextProcess: MissionProcess =
-    mission.mission_type === 2 && mission.process === 0 ? 1 : 2;
-  const now = new Date().toISOString();
-
-  const updateResponse = await supabaseRestFetch(
-    `mission?id=eq.${encodeURIComponent(String(mission.id))}`,
-    {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Prefer: "return=representation",
-      },
-      body: JSON.stringify({
-        process: nextProcess,
-        vote: normalizeMissionVote(input.vote ?? input.extraData, mission.vote),
-        additional: stringifyMissionText({
-          ...parseMissionText(mission.additional),
-          ...normalizeJsonObject(input.additional),
-          ...(nextProcess === 2
-            ? {
-                completed_by: input.userId,
-                completed_at: now,
-              }
-            : {
-                photo_uploaded_by: input.userId,
-                photo_uploaded_at: now,
-              }),
-        }),
-      }),
-    },
-    { useServiceRole: true },
-  );
-
-  await ensureResponseOk(updateResponse, "ミッションの更新に失敗しました。");
-
-  const updatedRows = (await updateResponse.json()) as Mission[];
-  const updatedMission = updatedRows[0];
-
-  if (!updatedMission) {
-    throw new ApiError("更新したミッションを取得できませんでした。", 500);
+  if (mission.mission_type === 1) {
+    throw new ApiError("投票タイプのミッションは投票画面から操作してください。", 400);
   }
 
-  return updatedMission;
+  const currentAdditional = parseMissionText(mission.additional);
+  const incomingAdditional = normalizeJsonObject(input.additional);
+  const isPhotoVoteMission = mission.mission_type === 2;
+
+  if (isPhotoVoteMission && getStringValue(currentAdditional.photo_base64)) {
+    throw new ApiError("写真はすでにアップロード済みです。", 409);
+  }
+
+  if (isPhotoVoteMission && !getStringValue(incomingAdditional.photo_base64)) {
+    throw new ApiError("写真データが必要です。", 400);
+  }
+
+  const nextProcess: MissionProcess = isPhotoVoteMission ? 1 : 2;
+  const now = new Date().toISOString();
+
+  return updateMissionByRowId(mission.id, {
+    process: nextProcess,
+    vote: normalizeMissionVote(input.vote ?? input.extraData, mission.vote),
+    additional: stringifyMissionText({
+      ...currentAdditional,
+      ...incomingAdditional,
+      ...(nextProcess === 2
+        ? {
+            completed_by: input.userId,
+            completed_at: now,
+          }
+        : {
+            photo_uploaded_by: input.userId,
+            photo_uploaded_at: now,
+          }),
+    }),
+  });
 }
 
-export async function voteMissionForUser(_input: {
+async function getVotingContext(input: {
   userId: string;
   missionId: string;
-  approved: boolean;
 }) {
-  void _input;
-  throw new ApiError(
-    "現在は投票ではなく完了ボタンでミッションを完了してください。",
-    400,
+  const mission = await getMissionByRowId(input.missionId);
+  const trip = await getTripForUser(input.userId);
+
+  if (!trip || mission.user_id !== input.userId) {
+    throw new ApiError("このミッションで投票する権限がありません。", 403);
+  }
+
+  if (mission.access !== 0 || ![1, 2].includes(mission.mission_type)) {
+    throw new ApiError("このミッションは投票対象ではありません。", 400);
+  }
+
+  const memberships = (await getTripMemberships(trip.id)).filter(
+    (membership) => !membership.settlement_pending,
   );
+  const memberUserIds = memberships.map((membership) => membership.user_id);
+  const groupMissions = await getMissionRowsForMembers({
+    missionGroupId: mission.mission_id,
+    userIds: memberUserIds,
+  });
+  const missionByUserId = new Map(
+    groupMissions.map((groupMission) => [groupMission.user_id, groupMission]),
+  );
+
+  return {
+    trip,
+    mission,
+    memberships,
+    memberUserIds,
+    groupMissions,
+    missionByUserId,
+  };
+}
+
+export async function getMissionVoteViewForUser(input: {
+  userId: string;
+  missionId: string;
+}): Promise<MissionVoteView> {
+  const context = await getVotingContext(input);
+  const profiles = await Promise.all(
+    context.memberships.map((membership) => getProfileById(membership.user_id)),
+  );
+  const currentAdditional = parseMissionText(context.mission.additional);
+  const selectedTargetUserId = getStringValue(
+    currentAdditional.vote_target_user_id,
+  );
+  const candidates = profiles.map((profile) => {
+    const targetMission = context.missionByUserId.get(profile.id);
+    const additional = parseMissionText(targetMission?.additional ?? null);
+    const photoBase64 = getStringValue(additional.photo_base64);
+    const photoName = getStringValue(additional.photo_name);
+    const isMe = profile.id === input.userId;
+    const hasRequiredPhoto =
+      context.mission.mission_type !== 2 || Boolean(photoBase64);
+
+    return {
+      user_id: profile.id,
+      username: profile.username,
+      display_name: profile.display_name,
+      is_me: isMe,
+      process: targetMission?.process ?? 0,
+      photo_base64: photoBase64,
+      photo_name: photoName,
+      can_vote: !isMe && Boolean(targetMission) && hasRequiredPhoto,
+    } satisfies MissionVoteCandidate;
+  });
+
+  return {
+    trip: context.trip,
+    mission: context.mission,
+    selected_target_user_id: selectedTargetUserId,
+    candidates,
+  };
+}
+
+export async function voteMissionForUser(input: {
+  userId: string;
+  missionId: string;
+  targetUserId: string;
+}) {
+  if (!input.targetUserId) {
+    throw new ApiError("投票先を選択してください。", 400);
+  }
+
+  if (input.targetUserId === input.userId) {
+    throw new ApiError("自分には投票できません。", 400);
+  }
+
+  const context = await getVotingContext(input);
+  const targetMission = context.missionByUserId.get(input.targetUserId);
+
+  if (context.mission.process === 2) {
+    throw new ApiError("このミッションは投票済みです。", 409);
+  }
+
+  if (!targetMission) {
+    throw new ApiError("投票先のミッションが見つかりません。", 404);
+  }
+
+  const currentAdditional = parseMissionText(context.mission.additional);
+
+  if (getStringValue(currentAdditional.vote_target_user_id)) {
+    throw new ApiError("このミッションは投票済みです。", 409);
+  }
+
+  if (
+    context.mission.mission_type === 2 &&
+    !getStringValue(currentAdditional.photo_base64)
+  ) {
+    throw new ApiError("写真をアップロードしてから投票してください。", 400);
+  }
+
+  const targetAdditional = parseMissionText(targetMission.additional);
+
+  if (
+    context.mission.mission_type === 2 &&
+    !getStringValue(targetAdditional.photo_base64)
+  ) {
+    throw new ApiError("写真をアップロードしていないユーザーには投票できません。", 400);
+  }
+
+  await updateMissionByRowId(targetMission.id, {
+    vote: normalizeMissionVote(targetMission.vote) + 1,
+  });
+
+  const votedMission = await updateMissionByRowId(context.mission.id, {
+    process: 2,
+    additional: stringifyMissionText({
+      ...currentAdditional,
+      vote_target_user_id: input.targetUserId,
+      voted_at: new Date().toISOString(),
+      completed_by: input.userId,
+      completed_at: new Date().toISOString(),
+    }),
+  });
+
+  return {
+    mission: {
+      id: votedMission.id,
+      process: votedMission.process,
+    },
+  };
 }
 
 async function getTripMemberships(tripId: string) {
@@ -1079,7 +1293,7 @@ async function getRankingForTrip(input: {
   const completedMissionsResponse =
     rankingUserIds.length > 0
       ? await supabaseRestFetch(
-          `mission?select=id,user_id,point,process&user_id=in.(${rankingUserIds.map(encodeURIComponent).join(",")})&process=eq.2`,
+          `mission?select=id,user_id,point,process,mission_type,additional&user_id=in.(${rankingUserIds.map(encodeURIComponent).join(",")})&process=eq.2`,
           {},
           { useServiceRole: true },
         )
@@ -1097,6 +1311,8 @@ async function getRankingForTrip(input: {
         id: number;
         user_id: string;
         point: number;
+        mission_type: MissionType;
+        additional: string | null;
       }>)
     : [];
   const scores = new Map<
@@ -1108,6 +1324,14 @@ async function getRankingForTrip(input: {
   >();
 
   for (const mission of completedMissions) {
+    const additional = parseMissionText(mission.additional);
+    const isVoteMission =
+      mission.mission_type === 1 || mission.mission_type === 2;
+
+    if (isVoteMission && !getStringValue(additional.vote_awarded_at)) {
+      continue;
+    }
+
     const current = scores.get(mission.user_id) ?? {
       points: 0,
       completedMissions: 0,
@@ -1146,6 +1370,61 @@ async function getRankingForTrip(input: {
     trip: input.trip,
     ranking,
   };
+}
+
+async function awardVoteMissionWinnersForTrip(tripId: string) {
+  const memberships = await getTripMemberships(tripId);
+  const memberUserIds = memberships.map((membership) => membership.user_id);
+
+  if (memberUserIds.length === 0) {
+    return;
+  }
+
+  const response = await supabaseRestFetch(
+    `mission?select=${getMissionSelectQuery()}&user_id=in.(${memberUserIds.map(encodeURIComponent).join(",")})&access=eq.0&mission_type=in.(1,2)`,
+    {},
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "投票ミッションの集計に失敗しました。");
+
+  const missions = (await response.json()) as Mission[];
+  const missionsByGroup = new Map<string, Mission[]>();
+
+  for (const mission of missions) {
+    const group = missionsByGroup.get(mission.mission_id) ?? [];
+    group.push(mission);
+    missionsByGroup.set(mission.mission_id, group);
+  }
+
+  const now = new Date().toISOString();
+
+  for (const group of missionsByGroup.values()) {
+    const maxVote = Math.max(
+      ...group.map((mission) => normalizeMissionVote(mission.vote)),
+    );
+
+    if (maxVote <= 0) {
+      continue;
+    }
+
+    const winners = group.filter(
+      (mission) => normalizeMissionVote(mission.vote) === maxVote,
+    );
+
+    await Promise.all(
+      winners.map((mission) =>
+        updateMissionByRowId(mission.id, {
+          process: 2,
+          additional: stringifyMissionText({
+            ...parseMissionText(mission.additional),
+            vote_awarded_at: now,
+            vote_awarded_count: maxVote,
+          }),
+        }),
+      ),
+    );
+  }
 }
 
 export async function getRankingForUser(userId: string) {
@@ -1326,6 +1605,7 @@ export async function leaveOrEndTripForUser(input: {
   const isOwner = trip.owner_user_id === input.userId;
 
   if (isOwner) {
+    await awardVoteMissionWinnersForTrip(trip.id);
     await markSettlementPendingForTrip(trip.id);
     return { ended: true, tripId: trip.id };
   }
