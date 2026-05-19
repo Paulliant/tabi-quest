@@ -422,7 +422,10 @@ Request:
   "missionId": "1",
   "vote": 1,
   "additional": {
-    "memo": "達成メモ"
+    "memo": "達成メモ",
+    "photo_base64": "base64-encoded-image",
+    "photo_mime_type": "image/jpeg",
+    "photo_name": "mission.jpg"
   }
 }
 ```
@@ -433,6 +436,7 @@ Request fields:
 - `vote`: 任意。数値または文字列の場合のみ `vote` に保存します。未指定または不正値の場合は既存値を維持します。
 - `extraData`: 任意。旧フィールドです。`vote` が未指定の場合のみ同じルールで `vote` に保存します。
 - `additional`: 任意。オブジェクトの場合のみ既存 `additional` にマージされます。
+- 写真付き投票の写真アップロードでは、フロントエンドがローカル画像を base64 化して `additional.photo_base64` に送信します。
 
 Response `200`:
 

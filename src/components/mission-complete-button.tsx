@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import type { ChangeEvent } from "react";
+import { useRef, useState } from "react";
 
 import { Icon } from "@/components/app-ui";
 
@@ -17,10 +18,13 @@ export default function MissionCompleteButton({
   missionType = 0,
 }: MissionCompleteButtonProps) {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
-  async function handleComplete() {
+  const isPhotoUploadStep = missionType === 2 && process === 0;
+
+  async function submitMission(additional: Record<string, unknown> = {}) {
     setErrorMessage("");
     setIsSubmitting(true);
 
@@ -32,7 +36,7 @@ export default function MissionCompleteButton({
         },
         body: JSON.stringify({
           missionId,
-          additional: {},
+          additional,
         }),
       });
       const data = (await response.json()) as { error?: string };
@@ -50,6 +54,63 @@ export default function MissionCompleteButton({
       );
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  function handleComplete() {
+    if (isPhotoUploadStep) {
+      fileInputRef.current?.click();
+      return;
+    }
+
+    void submitMission();
+  }
+
+  function readFileAsDataUrl(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          resolve(reader.result);
+          return;
+        }
+
+        reject(new Error("写真の読み込みに失敗しました。"));
+      };
+      reader.onerror = () => reject(new Error("写真の読み込みに失敗しました。"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handlePhotoSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setErrorMessage("画像ファイルを選択してください。");
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const [, photoBase64 = dataUrl] = dataUrl.split(",", 2);
+
+      await submitMission({
+        photo_base64: photoBase64,
+        photo_mime_type: file.type,
+        photo_name: file.name,
+      });
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "写真のアップロードに失敗しました。",
+      );
     }
   }
 
@@ -78,6 +139,17 @@ export default function MissionCompleteButton({
 
   return (
     <div className="grid gap-2">
+      {isPhotoUploadStep ? (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="sr-only"
+          onChange={handlePhotoSelected}
+          disabled={disabled}
+        />
+      ) : null}
+
       <button
         type="button"
         onClick={handleComplete}
