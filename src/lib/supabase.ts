@@ -311,6 +311,10 @@ function getStringValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+function normalizeMissionName(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
 function requireUserId(user: AuthUser | null | undefined, message: string) {
   if (!user?.id) {
     throw new ApiError(message, 500);
@@ -1888,7 +1892,7 @@ export async function scoreSecretMissionGuessesForUser(input: {
   }
 
   const missionResponse = await supabaseRestFetch(
-    `mission?select=${getMissionSelectQuery()}&id=in.(${missionIds.map(encodeURIComponent).join(",")})&user_id=in.(${memberUserIds.map(encodeURIComponent).join(",")})&access=in.(1,2)`,
+    `mission?select=${getMissionSelectQuery()}&user_id=in.(${memberUserIds.map(encodeURIComponent).join(",")})&access=in.(1,2)`,
     {},
     { useServiceRole: true },
   );
@@ -1897,6 +1901,18 @@ export async function scoreSecretMissionGuessesForUser(input: {
 
   const missions = (await missionResponse.json()) as Mission[];
   const missionById = new Map(missions.map((mission) => [String(mission.id), mission]));
+  const realMissionNamesByUserId = new Map<string, Set<string>>();
+
+  for (const mission of missions) {
+    if (mission.access !== 1) {
+      continue;
+    }
+
+    const names = realMissionNamesByUserId.get(mission.user_id) ?? new Set<string>();
+    names.add(normalizeMissionName(mission.mission_name));
+    realMissionNamesByUserId.set(mission.user_id, names);
+  }
+
   const seenMissionIds = new Set<string>();
   const results: SecretGuessResult[] = [];
 
@@ -1920,7 +1936,11 @@ export async function scoreSecretMissionGuessesForUser(input: {
       throw new ApiError("今回のハント対象ではないミッションが含まれています。", 400);
     }
 
-    const correct = mission.access === 1 && mission.user_id === assignment.targetUserId;
+    const targetMissionNames =
+      realMissionNamesByUserId.get(assignment.targetUserId) ?? new Set<string>();
+    const correct = targetMissionNames.has(
+      normalizeMissionName(mission.mission_name),
+    );
     const points = correct ? Math.floor(mission.point / 2) : -10;
 
     results.push({
