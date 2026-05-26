@@ -37,7 +37,7 @@ export default function MissionChangeButton() {
   }
 
   return (
-    <div className="flex flex-col items-center gap-2 border-t border-[#e1e6df] pt-4 text-center dark:border-[#26364f]">
+    <div className="flex flex-col items-center gap-2 pt-4 text-center">
       <button
         type="button"
         onClick={changeMissions}
