@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Image from "next/image";
 
 type IconName =
   | "arrow"
@@ -20,27 +21,14 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-3">
       <div className="grid h-11 w-11 shrink-0 place-items-center rounded-md border border-[#d8e4dc] bg-white shadow-sm dark:border-[#26364f] dark:bg-[#0f1b2d]">
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 48 48"
-          className="h-8 w-8"
-          fill="none"
-        >
-          <path
-            d="M8 32.5 19.5 8l20 7.5L28 40 8 32.5Z"
-            fill="#f5b44c"
-            stroke="#17342f"
-            strokeWidth="2.4"
-            strokeLinejoin="round"
-          />
-          <path
-            d="m19.5 8 2 22.5M39.5 15.5 21.5 30.5"
-            stroke="#17342f"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-          />
-          <circle cx="28.5" cy="20.5" r="4.5" fill="#2f7d6b" />
-        </svg>
+        <Image
+          src="/logo.png"
+          alt="TabiQuest"
+          width={44}
+          height={44}
+          priority
+          className="h-full w-full rounded-md object-cover"
+        />
       </div>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <p className="text-xl font-bold leading-6 text-[#14231f] dark:text-[#e6edf7]">TabiQuest</p>
