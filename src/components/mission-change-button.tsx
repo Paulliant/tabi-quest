@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { Icon } from "@/components/app-ui";
+import { Icon, LoadingOverlay } from "@/components/app-ui";
 
 export default function MissionChangeButton() {
   const router = useRouter();
@@ -38,6 +38,10 @@ export default function MissionChangeButton() {
 
   return (
     <div className="flex flex-col items-center gap-2 pt-4 text-center">
+      {isSubmitting ? (
+        <LoadingOverlay label="AIがミッションを変更中..." />
+      ) : null}
+
       <button
         type="button"
         onClick={changeMissions}

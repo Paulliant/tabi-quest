@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
-import { Icon, SectionHeader } from "@/components/app-ui";
+import { Icon, LoadingOverlay, SectionHeader } from "@/components/app-ui";
 
 export default function TripEntryPanel() {
   const router = useRouter();
@@ -82,6 +82,10 @@ export default function TripEntryPanel() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
+      {isCreating ? (
+        <LoadingOverlay label="AIが旅のミッションを生成中..." />
+      ) : null}
+
       <section className="flex min-h-96 flex-col rounded-md border border-[#d8e0d9] bg-white p-5 shadow-sm dark:border-[#26364f] dark:bg-[#0f1b2d] sm:p-6">
         <SectionHeader
           eyebrow="Create Journey"

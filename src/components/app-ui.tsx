@@ -152,6 +152,23 @@ export function AppHeader({ children }: { children: ReactNode }) {
   );
 }
 
+export function LoadingOverlay({ label = "Loading..." }: { label?: string }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed inset-0 z-[70] grid place-items-center bg-[#08111f]/55 px-4 backdrop-blur-sm"
+    >
+      <div className="flex min-w-56 flex-col items-center gap-4 rounded-md border border-[#d8e0d9] bg-white px-6 py-5 text-center shadow-xl dark:border-[#26364f] dark:bg-[#0f1b2d]">
+        <span className="h-10 w-10 animate-spin rounded-full border-4 border-[#d8e0d9] border-t-[#2f7d6b] dark:border-[#26364f] dark:border-t-[#38bdf8]" />
+        <span className="text-sm font-bold text-[#14231f] dark:text-[#e6edf7]">
+          {label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsButton() {
   return (
     <button
