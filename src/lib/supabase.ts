@@ -181,7 +181,10 @@ export type MissionVoteView = {
 };
 
 const COMMON_MISSION_COUNT = 3;
-const SECRET_MISSION_COUNT = 3;
+const VISIBLE_SECRET_MISSION_COUNT = 2;
+const DUMMY_SECRET_MISSION_COUNT = 1;
+const SECRET_MISSION_COUNT =
+  VISIBLE_SECRET_MISSION_COUNT + DUMMY_SECRET_MISSION_COUNT;
 const SECRET_GUESS_TARGET_COUNT = 3;
 
 export class ApiError extends Error {
@@ -942,9 +945,10 @@ async function getGeneratedSecretMissionDrafts(input: {
     const seed = `${input.trip.id}:${input.userId}:${Date.now()}`;
     const curated = selectCuratedMission("secret", seed);
     if (curated) {
-      const index = Math.abs(
-        [...seed].reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 13),
-      ) % Math.max(1, drafts.length);
+      const index =
+        Math.abs(
+          [...seed].reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 13),
+        ) % Math.max(1, VISIBLE_SECRET_MISSION_COUNT);
 
       const curatedDraft = {
         mission_id: createMissionGroupId(),
@@ -970,7 +974,10 @@ async function getGeneratedSecretMissionDrafts(input: {
     throw new ApiError("GPT から十分な数の極秘ミッションを生成できませんでした。", 500);
   }
 
-  return drafts;
+  return drafts.slice(0, SECRET_MISSION_COUNT).map((draft, index) => ({
+    ...draft,
+    access: (index < VISIBLE_SECRET_MISSION_COUNT ? 1 : 2) as MissionAccess,
+  }));
 }
 
 async function insertMissionDrafts(input: {
@@ -1152,6 +1159,49 @@ async function replaceMissionRowsForUser(input: {
   return [...replacedMissions, ...insertedMissions];
 }
 
+async function enforceSecretMissionVisibilityForUser(missions: Mission[]) {
+  const secretMissions = missions.filter((mission) => mission.access !== 0);
+  const visibleSecretMissions = secretMissions.filter(
+    (mission) => mission.access === 1,
+  );
+  const needsRepair =
+    visibleSecretMissions.length > VISIBLE_SECRET_MISSION_COUNT ||
+    (secretMissions.length >= SECRET_MISSION_COUNT &&
+      secretMissions.every((mission) => mission.access !== 2));
+
+  if (!needsRepair) {
+    return missions;
+  }
+
+  const sortedSecretMissions = [...secretMissions].sort(
+    (a, b) =>
+      a.created_at.localeCompare(b.created_at) || a.id - b.id,
+  );
+  const repairedById = new Map<string, Mission>();
+
+  await Promise.all(
+    sortedSecretMissions.map(async (mission, index) => {
+      const access = (
+        index < VISIBLE_SECRET_MISSION_COUNT ? 1 : 2
+      ) as MissionAccess;
+
+      if (mission.access === access) {
+        repairedById.set(String(mission.id), mission);
+        return;
+      }
+
+      repairedById.set(
+        String(mission.id),
+        await updateMissionByRowId(mission.id, { access }),
+      );
+    }),
+  );
+
+  return missions.map(
+    (mission) => repairedById.get(String(mission.id)) ?? mission,
+  );
+}
+
 async function getMissionRowsForMembers(input: {
   missionGroupId: string;
   userIds: string[];
@@ -1298,10 +1348,11 @@ export async function listMissionsForUser(userId: string) {
     };
   }
 
-  const missions = await getMissionsForTripUser({
+  const storedMissions = await getMissionsForTripUser({
     tripId: trip.id,
     userId,
   });
+  const missions = await enforceSecretMissionVisibilityForUser(storedMissions);
 
   return {
     trip,
