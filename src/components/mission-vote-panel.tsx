@@ -62,7 +62,9 @@ export default function MissionVotePanel({
     <div className="grid gap-4">
       {candidates.map((candidate) => {
         const isSelected = candidate.user_id === selectedTargetUserId;
-        const disabled = !candidate.can_vote || Boolean(pendingTargetUserId);
+        const hasSelectedVote = Boolean(selectedTargetUserId);
+        const disabled =
+          !candidate.can_vote || Boolean(pendingTargetUserId) || isSelected;
 
         return (
           <article
@@ -129,8 +131,10 @@ export default function MissionVotePanel({
               {pendingTargetUserId === candidate.user_id
                 ? "投票中..."
                 : isSelected
-                  ? "投票済み"
-                  : "投票"}
+                  ? "投票中"
+                  : hasSelectedVote
+                    ? "変更"
+                    : "投票"}
             </button>
           </article>
         );

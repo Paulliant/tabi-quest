@@ -188,11 +188,11 @@ export default function SecretGuessPanel({
         ))}
       </ol>
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+      <div className="mt-6 flex flex-col gap-3">
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#315f9a] px-5 text-sm font-bold text-white transition hover:bg-[#294f80] dark:bg-[#2563eb] dark:hover:bg-[#1d4ed8]"
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-[#315f9a] px-5 text-sm font-bold text-white transition hover:bg-[#294f80] dark:bg-[#2563eb] dark:hover:bg-[#1d4ed8]"
         >
           <Icon name="target" />
           ミッションハント
@@ -221,7 +221,7 @@ export default function SecretGuessPanel({
                   Drag & Drop
                 </p>
                 <h3 className="mt-1 text-2xl font-bold text-[#14231f] dark:text-[#e6edf7]">
-                  ミッションをユーザーへ割り当て
+                  自分以外のミッションをユーザーへ割り当て
                 </h3>
               </div>
               <button
