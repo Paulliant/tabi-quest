@@ -119,11 +119,7 @@ export default function MissionActionPanel({
         <button
           type="button"
           onClick={() => setIsVoteOpen(true)}
-          className={`inline-flex h-11 min-w-28 items-center justify-center gap-2 rounded-md px-5 text-sm font-bold transition ${
-            isVoted
-              ? "bg-[#edf0eb] text-[#59645f] hover:bg-[#e1e8e2] dark:bg-[#172033] dark:text-[#b6c2d2] dark:hover:bg-[#1f2b43]"
-              : "bg-[#315f9a] text-white hover:bg-[#294f80] dark:bg-[#2563eb] dark:hover:bg-[#1d4ed8]"
-          }`}
+          className="inline-flex h-11 min-w-28 items-center justify-center gap-2 rounded-md bg-[#315f9a] px-5 text-sm font-bold text-white transition hover:bg-[#294f80] dark:bg-[#2563eb] dark:hover:bg-[#1d4ed8]"
         >
           <Icon name={isVoted ? "check" : "vote"} />
           {isVoted ? "投票を変更" : "投票する"}
@@ -151,11 +147,7 @@ export default function MissionActionPanel({
             <button
               type="button"
               onClick={() => setIsVoteOpen(true)}
-              className={`inline-flex h-11 min-w-28 items-center justify-center gap-2 rounded-md px-5 text-sm font-bold transition ${
-                isVoted
-                  ? "bg-[#edf0eb] text-[#59645f] hover:bg-[#e1e8e2] dark:bg-[#172033] dark:text-[#b6c2d2] dark:hover:bg-[#1f2b43]"
-                  : "bg-[#315f9a] text-white hover:bg-[#294f80] dark:bg-[#2563eb] dark:hover:bg-[#1d4ed8]"
-              }`}
+              className="inline-flex h-11 min-w-28 items-center justify-center gap-2 rounded-md bg-[#315f9a] px-5 text-sm font-bold text-white transition hover:bg-[#294f80] dark:bg-[#2563eb] dark:hover:bg-[#1d4ed8]"
             >
               <Icon name={isVoted ? "check" : "vote"} />
               {isVoted ? "投票を変更" : "投票する"}
