@@ -992,7 +992,20 @@ async function getMissionByRowId(missionId: string) {
 
 async function updateMissionByRowId(
   missionId: number,
-  payload: Partial<Pick<Mission, "process" | "vote" | "additional">>,
+  payload: Partial<
+    Pick<
+      Mission,
+      | "mission_id"
+      | "mission_name"
+      | "mission_description"
+      | "access"
+      | "point"
+      | "process"
+      | "mission_type"
+      | "vote"
+      | "additional"
+    >
+  >,
 ) {
   const response = await supabaseRestFetch(
     `mission?id=eq.${encodeURIComponent(String(missionId))}`,
@@ -1017,6 +1030,62 @@ async function updateMissionByRowId(
   }
 
   return mission;
+}
+
+async function deleteMissionRows(rowIds: number[]) {
+  if (rowIds.length === 0) {
+    return;
+  }
+
+  const response = await supabaseRestFetch(
+    `mission?id=in.(${rowIds.map((id) => encodeURIComponent(String(id))).join(",")})`,
+    {
+      method: "DELETE",
+    },
+    { useServiceRole: true },
+  );
+
+  await ensureResponseOk(response, "ミッションの削除に失敗しました。");
+}
+
+async function replaceMissionRowsForUser(input: {
+  userId: string;
+  existingMissions: Mission[];
+  drafts: MissionDraft[];
+}) {
+  const replaceCount = Math.min(
+    input.existingMissions.length,
+    input.drafts.length,
+  );
+  const replacedMissions = await Promise.all(
+    input.drafts.slice(0, replaceCount).map((draft, index) =>
+      updateMissionByRowId(input.existingMissions[index].id, {
+        mission_id: draft.mission_id ?? createMissionGroupId(),
+        mission_name: draft.mission_name.trim(),
+        mission_description: draft.mission_description.trim(),
+        access: draft.access,
+        point: draft.point,
+        process: getInitialMissionProcess(draft.mission_type),
+        mission_type: draft.mission_type,
+        vote: 0,
+        additional: "",
+      }),
+    ),
+  );
+  const insertedMissions =
+    input.drafts.length > replaceCount
+      ? await insertMissionDrafts({
+          userId: input.userId,
+          drafts: input.drafts.slice(replaceCount),
+        })
+      : [];
+  const extraMissionIds = input.existingMissions
+    .slice(replaceCount)
+    .map((mission) => mission.id);
+
+  await deleteMissionRows(extraMissionIds);
+
+  return [...replacedMissions, ...insertedMissions];
 }
 
 async function getMissionRowsForMembers(input: {
@@ -1104,6 +1173,55 @@ export async function ensureMissionsForTripUser(input: {
     ...input,
     copyCommonFromOwner: input.userId !== input.trip.owner_user_id,
   });
+}
+
+export async function changeMissionsForUser(userId: string) {
+  const trip = await getTripForUser(userId);
+
+  if (!trip) {
+    throw new ApiError("参加中の trip がありません。", 404);
+  }
+
+  const [memberships, existingMissions] = await Promise.all([
+    getTripMemberships(trip.id),
+    getMissionsForTripUser({
+      tripId: trip.id,
+      userId,
+    }),
+  ]);
+  const activeMemberCount = memberships.filter(
+    (membership) => membership.settlement_progress === 0,
+  ).length;
+  const shouldChangeCommonMissions = activeMemberCount <= 1;
+  const commonDrafts = shouldChangeCommonMissions
+    ? await getGeneratedCommonMissionDrafts(trip)
+    : [];
+  const secretDrafts = await getGeneratedSecretMissionDrafts({
+    trip,
+    userId,
+  });
+  const changedCommonMissions = shouldChangeCommonMissions
+    ? await replaceMissionRowsForUser({
+        userId,
+        existingMissions: existingMissions.filter(
+          (mission) => mission.access === 0,
+        ),
+        drafts: commonDrafts,
+      })
+    : existingMissions.filter((mission) => mission.access === 0);
+  const changedSecretMissions = await replaceMissionRowsForUser({
+    userId,
+    existingMissions: existingMissions.filter((mission) => mission.access !== 0),
+    drafts: secretDrafts,
+  });
+
+  return {
+    memberCount: activeMemberCount,
+    changedCommonMissions: shouldChangeCommonMissions,
+    missions: [...changedCommonMissions, ...changedSecretMissions].filter(
+      (mission) => mission.access !== 2,
+    ),
+  };
 }
 
 export async function listMissionsForUser(userId: string) {

@@ -10,6 +10,7 @@ import {
 } from "@/components/app-ui";
 import ThemeToggleButton from "@/components/theme-toggle-button";
 import MissionActionPanel from "@/components/mission-action-panel";
+import MissionChangeButton from "@/components/mission-change-button";
 import TripLeaveButton from "@/components/trip-leave-button";
 import LogoutButton from "@/components/logout-button";
 import TripEntryPanel from "@/components/trip-entry-panel";
@@ -212,6 +213,10 @@ export default async function Home() {
                     </p>
                   </div>
                 )}
+              </div>
+
+              <div className="mt-4">
+                <MissionChangeButton />
               </div>
             </section>
 
