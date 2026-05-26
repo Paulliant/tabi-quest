@@ -854,9 +854,10 @@ function normalizeGeneratedPoint(point: number) {
 }
 
 async function getGeneratedCommonMissionDrafts(trip: Trip) {
+  const generationSeed = new Date().toISOString();
   const result = await generateMissionFromTravelInput({
     tripTitle: trip.trip_name,
-    travelNotes: trip.trip_description,
+    travelNotes: `${trip.trip_description}\n生成シード: ${generationSeed}`,
     missionCount: COMMON_MISSION_COUNT,
   });
 
@@ -877,10 +878,11 @@ async function getGeneratedCommonMissionDrafts(trip: Trip) {
 
   // inject one curated mission deterministically based on trip id
   try {
-    const curated = selectCuratedMission("common", trip.id);
+    const seed = `${trip.id}:${generationSeed}`;
+    const curated = selectCuratedMission("common", seed);
     if (curated) {
       const index = Math.abs(
-        [...trip.id].reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 7),
+        [...seed].reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 7),
       ) % Math.max(1, drafts.length);
 
       const curatedDraft = {
@@ -915,10 +917,11 @@ async function getGeneratedSecretMissionDrafts(input: {
   trip: Trip;
   userId: string;
 }) {
+  const generationSeed = new Date().toISOString();
   const profile = await getProfileById(input.userId);
   const result = await generateMissionFromTravelInput({
     tripTitle: input.trip.trip_name,
-    travelNotes: input.trip.trip_description,
+    travelNotes: `${input.trip.trip_description}\n生成シード: ${generationSeed}`,
     generationMode: "secret",
     missionCount: SECRET_MISSION_COUNT,
     playerName: profile.display_name,
@@ -943,7 +946,7 @@ async function getGeneratedSecretMissionDrafts(input: {
   // inject one curated secret mission deterministically based on trip id + userId
   try {
     // include current time so selection varies between generations
-    const seed = `${input.trip.id}:${input.userId}:${Date.now()}`;
+    const seed = `${input.trip.id}:${input.userId}:${generationSeed}`;
     const curated = selectCuratedMission("secret", seed);
     if (curated) {
       const index =
