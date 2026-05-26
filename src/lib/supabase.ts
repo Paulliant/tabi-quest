@@ -1424,22 +1424,22 @@ export async function completeMissionForUser(input: {
     });
   }
 
-  if (mission.process === 2) {
-    throw new ApiError("このミッションはすでに完了しています。", 409);
-  }
-
   const incomingAdditional = normalizeJsonObject(input.additional);
   const isPhotoVoteMission = mission.mission_type === 2;
 
-  if (isPhotoVoteMission && getStringValue(currentAdditional.photo_base64)) {
-    throw new ApiError("写真はすでにアップロード済みです。", 409);
+  if (!isPhotoVoteMission && mission.process === 2) {
+    throw new ApiError("このミッションはすでに完了しています。", 409);
   }
 
   if (isPhotoVoteMission && !getStringValue(incomingAdditional.photo_base64)) {
     throw new ApiError("写真データが必要です。", 400);
   }
 
-  const nextProcess: MissionProcess = isPhotoVoteMission ? 1 : 2;
+  const nextProcess: MissionProcess = isPhotoVoteMission
+    ? mission.process === 2
+      ? 2
+      : 1
+    : 2;
   const now = new Date().toISOString();
 
   return updateMissionByRowId(mission.id, {

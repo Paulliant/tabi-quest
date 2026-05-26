@@ -2,9 +2,10 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { ChangeEvent, useRef, useState } from "react";
 
 import { Icon } from "@/components/app-ui";
+import { photoInputAccept, preparePhotoUpload } from "@/lib/photo-upload";
 import type { MissionVoteCandidate } from "@/lib/supabase";
 
 type MissionVotePanelProps = {
@@ -23,7 +24,9 @@ export default function MissionVotePanel({
   onVoted,
 }: MissionVotePanelProps) {
   const router = useRouter();
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [pendingTargetUserId, setPendingTargetUserId] = useState("");
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
   async function vote(targetUserId: string) {
@@ -58,11 +61,69 @@ export default function MissionVotePanel({
     }
   }
 
+  async function uploadMyPhoto(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setErrorMessage("");
+    setIsUploadingPhoto(true);
+
+    try {
+      const photo = await preparePhotoUpload(file);
+      const response = await fetch("/api/missions/complete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          missionId,
+          additional: {
+            photo_base64: photo.dataUrl,
+            photo_name: photo.name,
+            photo_type: photo.type,
+            photo_size: photo.size,
+          },
+        }),
+      });
+      const data = (await response.json()) as { error?: string };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "写真のアップロードに失敗しました。");
+      }
+
+      router.refresh();
+      onVoted?.();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "写真のアップロードに失敗しました。",
+      );
+    } finally {
+      setIsUploadingPhoto(false);
+      event.target.value = "";
+    }
+  }
+
   return (
     <div className="grid gap-4">
+      {missionType === 2 ? (
+        <input
+          ref={photoInputRef}
+          type="file"
+          accept={photoInputAccept}
+          onChange={uploadMyPhoto}
+          className="hidden"
+        />
+      ) : null}
+
       {candidates.map((candidate) => {
         const isSelected = candidate.user_id === selectedTargetUserId;
         const hasSelectedVote = Boolean(selectedTargetUserId);
+        const isMyPhotoVoteCandidate = missionType === 2 && candidate.is_me;
         const disabled =
           !candidate.can_vote || Boolean(pendingTargetUserId) || isSelected;
 
@@ -81,12 +142,12 @@ export default function MissionVotePanel({
                   src={candidate.photo_base64}
                   alt={`${candidate.display_name}の投稿写真`}
                   width={176}
-                  height={132}
+                  height={176}
                   unoptimized
-                  className="aspect-[4/3] w-full rounded-md border border-[#d8e0d9] object-cover dark:border-[#26364f] sm:w-44"
+                  className="aspect-square w-full rounded-md border border-[#d8e0d9] object-cover dark:border-[#26364f] sm:w-44"
                 />
               ) : (
-                <div className="grid aspect-[4/3] w-full place-items-center rounded-md border border-dashed border-[#cfd8d1] bg-white text-center text-sm font-semibold text-[#66736c] dark:border-[#26364f] dark:bg-[#0f1b2d] dark:text-[#93a4b8] sm:w-44">
+                <div className="grid aspect-square w-full place-items-center rounded-md border border-dashed border-[#cfd8d1] bg-white text-center text-sm font-semibold text-[#66736c] dark:border-[#26364f] dark:bg-[#0f1b2d] dark:text-[#93a4b8] sm:w-44">
                   未アップロード
                 </div>
               )
@@ -115,27 +176,41 @@ export default function MissionVotePanel({
               ) : (
                 <p className="mt-3 text-sm font-semibold text-[#66736c] dark:text-[#93a4b8]">
                   {candidate.is_me
-                    ? "自分には投票できません"
+                    ? missionType === 2
+                      ? "自分の写真を変更できます"
+                      : "自分には投票できません"
                     : "投票対象外"}
                 </p>
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={() => vote(candidate.user_id)}
-              disabled={disabled}
-              className="inline-flex h-11 min-w-28 items-center justify-center gap-2 self-center rounded-md bg-[#315f9a] px-5 text-sm font-bold text-white transition hover:bg-[#294f80] disabled:cursor-not-allowed disabled:bg-[#d8ded8] disabled:text-[#66736c] dark:bg-[#2563eb] dark:hover:bg-[#1d4ed8] dark:disabled:bg-[#172033] dark:disabled:text-[#93a4b8]"
-            >
-              <Icon name="vote" />
-              {pendingTargetUserId === candidate.user_id
-                ? "投票中..."
-                : isSelected
-                  ? "投票中"
-                  : hasSelectedVote
-                    ? "変更"
-                    : "投票"}
-            </button>
+            {isMyPhotoVoteCandidate ? (
+              <button
+                type="button"
+                onClick={() => photoInputRef.current?.click()}
+                disabled={isUploadingPhoto}
+                className="inline-flex h-11 min-w-36 items-center justify-center gap-2 self-center rounded-md bg-[#2f7d6b] px-5 text-sm font-bold text-white transition hover:bg-[#276452] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-[#0ea5e9] dark:hover:bg-[#0284c7]"
+              >
+                <Icon name="photo" />
+                {isUploadingPhoto ? "アップロード中..." : "写真を再アップロード"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => vote(candidate.user_id)}
+                disabled={disabled}
+                className="inline-flex h-11 min-w-28 items-center justify-center gap-2 self-center rounded-md bg-[#315f9a] px-5 text-sm font-bold text-white transition hover:bg-[#294f80] disabled:cursor-not-allowed disabled:bg-[#d8ded8] disabled:text-[#66736c] dark:bg-[#2563eb] dark:hover:bg-[#1d4ed8] dark:disabled:bg-[#172033] dark:disabled:text-[#93a4b8]"
+              >
+                <Icon name="vote" />
+                {pendingTargetUserId === candidate.user_id
+                  ? "投票中..."
+                  : isSelected
+                    ? "投票中"
+                    : hasSelectedVote
+                      ? "変更"
+                      : "投票"}
+              </button>
+            )}
           </article>
         );
       })}

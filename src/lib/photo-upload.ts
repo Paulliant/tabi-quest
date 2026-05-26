@@ -1,4 +1,4 @@
-const MAX_PHOTO_EDGE = 1600;
+const PHOTO_SIZE = 500;
 const JPEG_QUALITY = 0.86;
 const ACCEPTED_PHOTO_EXTENSIONS = /\.(jpe?g|png|webp|heic|heif)$/i;
 
@@ -34,32 +34,6 @@ function getJpegName(fileName: string) {
   return trimmedName.replace(/\.[^.]+$/, "") + ".jpg";
 }
 
-function getTargetSize(width: number, height: number) {
-  const scale = Math.min(1, MAX_PHOTO_EDGE / Math.max(width, height));
-
-  return {
-    width: Math.max(1, Math.round(width * scale)),
-    height: Math.max(1, Math.round(height * scale)),
-  };
-}
-
-async function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-        return;
-      }
-
-      reject(new Error("写真を読み込めませんでした。"));
-    };
-    reader.onerror = () => reject(new Error("写真を読み込めませんでした。"));
-    reader.readAsDataURL(file);
-  });
-}
-
 async function imageToCanvasSource(file: File) {
   if ("createImageBitmap" in window) {
     try {
@@ -87,11 +61,13 @@ async function imageToCanvasSource(file: File) {
 
 async function canvasToJpegDataUrl(file: File) {
   const image = await imageToCanvasSource(file);
-  const { width, height } = getTargetSize(image.width, image.height);
+  const sourceSize = Math.min(image.width, image.height);
+  const sourceX = Math.max(0, Math.floor((image.width - sourceSize) / 2));
+  const sourceY = Math.max(0, Math.floor((image.height - sourceSize) / 2));
   const canvas = document.createElement("canvas");
 
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = PHOTO_SIZE;
+  canvas.height = PHOTO_SIZE;
 
   const context = canvas.getContext("2d");
 
@@ -99,7 +75,17 @@ async function canvasToJpegDataUrl(file: File) {
     throw new Error("写真を変換できませんでした。");
   }
 
-  context.drawImage(image, 0, 0, width, height);
+  context.drawImage(
+    image,
+    sourceX,
+    sourceY,
+    sourceSize,
+    sourceSize,
+    0,
+    0,
+    PHOTO_SIZE,
+    PHOTO_SIZE,
+  );
 
   if ("close" in image && typeof image.close === "function") {
     image.close();
@@ -129,12 +115,7 @@ export async function preparePhotoUpload(file: File): Promise<PreparedPhotoUploa
       );
     }
 
-    return {
-      dataUrl: await fileToDataUrl(file),
-      name: file.name,
-      type: file.type || "image/*",
-      size: file.size,
-    };
+    throw new Error("写真を500x500のJPEGに変換できませんでした。");
   }
 }
 
