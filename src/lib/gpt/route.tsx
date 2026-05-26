@@ -33,7 +33,7 @@ export type GeneratedMissionResponse = {
 	missions: GeneratedMission[];
 };
 
-const MISSION_POINT_VALUES = [10, 20, 30, 40, 50] as const;
+const MISSION_POINT_VALUES = [30, 40, 50] as const;
 
 const MISSION_CLEAR_METHODS = [0, 1, 2] as const;
 
@@ -212,7 +212,7 @@ function parseMissionResponseText(content: string): GeneratedMissionResponse {
 		}
 
 		if (!MISSION_POINT_VALUES.includes(points as (typeof MISSION_POINT_VALUES)[number])) {
-			throw new Error("ポイントは 10, 20, 30, 40, 50 のいずれかである必要があります。");
+			throw new Error("ポイントは 30, 40, 50 のいずれかである必要があります。");
 		}
 
 		if (!MISSION_CLEAR_METHODS.includes(clearMethod as (typeof MISSION_CLEAR_METHODS)[number])) {
@@ -430,7 +430,7 @@ async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 								"",
 								"# 目的",
 								input.generationMode === "secret"
-									? "- 個人ごとの極秘ミッションを生成する"
+									? "- 個人ごとの極秘ミッションを生成する。"
 									: "- 全員で投票や写真付き投票を行うミッションを生成する",
 								"- 観光・行動・発見・軽い交流の要素を含める",
 								"- 安全で倫理的に問題のない内容のみを生成する",
@@ -452,12 +452,12 @@ async function callOpenAI(travelText: string, input: MissionGenerationInput) {
 									? `- 極秘ミッションはちょうど${missionCount}個生成する`
 									: `- 共通ミッションはちょうど${missionCount}個生成する`,
 								input.generationMode === "secret"
-									? "- 個人で実行できる内容にする"
-									: "- 全員で競い合い、投票や写真付き投票により明確に勝敗や優劣（面白さ含む）を付け、上位の人に得点を付与する内容にする",
+									? "- 個人で実行できる内容にし、他メンバーに気づかれるか気づかれないかの絶妙なラインのものにしてください。"
+									: "- 全員で競い合い、投票や写真付き投票により明確に勝敗や優劣（面白さ含む）を付けることができる内容にする",
 								"- 内容はバリエーションを持たせる",
 								input.generationMode === "secret"
-									? "- 極秘ミッションはクリア方法が0のものに限り、他メンバーに気づかれるか気づかれないかの絶妙なラインで実施してください。"
-									: "- 共通ミッションはクリア方法が1,2のものに限る",
+									? "- 極秘ミッションはミッション種別が通常のものに限り、投票、写真付き投票のものは生成しない"
+									: "- 共通ミッションはミッション種別が投票、写真付き投票のものに限る",
 								input.generationMode === "secret"
 									? "- points は 30,40,50 のいずれかで、極秘ミッションはバレやすさに応じて高ポイントにする傾向で出力してください。"
 									: "- points は 30,40,50 のいずれかで、共通ミッションは面白さや難易度に応じて高ポイントにする傾向で出力してください。",
