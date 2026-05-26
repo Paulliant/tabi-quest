@@ -358,8 +358,15 @@ function MissionHuntResultView({
                 <p className="font-bold text-[#14231f] dark:text-[#e6edf7]">
                   {item.mission_name}
                 </p>
-                <p className="mt-1 text-sm text-[#5d6a63] dark:text-[#93a4b8]">
+                {item.mission_description ? (
+                  <p className="mt-2 text-sm leading-6 text-[#5d6a63] dark:text-[#93a4b8]">
+                    {item.mission_description}
+                  </p>
+                ) : null}
+                <p className="mt-2 text-sm text-[#5d6a63] dark:text-[#93a4b8]">
                   {item.correct ? "正解" : "不正解"}
+                  {item.target_display_name ? ` / 予想: ${item.target_display_name}` : ""}
+                  {item.actual_display_name ? ` / 正解: ${item.actual_display_name}` : ""}
                 </p>
               </div>
               <p
@@ -374,6 +381,35 @@ function MissionHuntResultView({
             </div>
           </article>
         ))}
+
+        {result.revealed_missions.length > 0 ? (
+          <section className="rounded-md border border-[#d8e0d9] bg-white p-4 dark:border-[#26364f] dark:bg-[#0f1b2d]">
+            <p className="text-xs font-bold uppercase text-[#2f7d6b] dark:text-[#38bdf8]">
+              Secret Missions
+            </p>
+            <h4 className="mt-1 text-lg font-bold text-[#14231f] dark:text-[#e6edf7]">
+              極秘ミッション公開
+            </h4>
+            <div className="mt-3 grid gap-3">
+              {result.revealed_missions.map((mission) => (
+                <article
+                  key={mission.mission_id}
+                  className="rounded-md border border-[#e0e6df] bg-[#fbfcf8] p-3 dark:border-[#26364f] dark:bg-[#0b1626]"
+                >
+                  <p className="text-xs font-bold text-[#2f7d6b] dark:text-[#2dd4bf]">
+                    {mission.owner_display_name}
+                  </p>
+                  <p className="mt-1 font-bold text-[#14231f] dark:text-[#e6edf7]">
+                    {mission.mission_name}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-[#5d6a63] dark:text-[#93a4b8]">
+                    {mission.mission_description}
+                  </p>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </div>
 
       <aside className="rounded-md border border-[#e0e6df] bg-[#fbfcf8] p-4 dark:border-[#26364f] dark:bg-[#0b1626]">
@@ -475,7 +511,7 @@ function MissionCard({
           </span>
         ) : null}
       </div>
-      <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#5d6a63] dark:text-[#93a4b8]">
+      <p className="mt-1 text-xs leading-5 text-[#5d6a63] dark:text-[#93a4b8]">
         {mission.mission_description}
       </p>
       <p className="mt-2 text-xs font-bold text-[#2f7d6b] dark:text-[#2dd4bf]">

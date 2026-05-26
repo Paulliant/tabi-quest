@@ -91,14 +91,27 @@ export type SecretGuessAssignment = {
 export type SecretGuessResult = {
   mission_id: number;
   mission_name: string;
+  mission_description?: string;
   target_user_id: string;
+  target_display_name?: string;
+  actual_user_id?: string;
+  actual_display_name?: string;
   correct: boolean;
   points: number;
+};
+
+export type SecretGuessRevealedMission = {
+  mission_id: number;
+  mission_name: string;
+  mission_description: string;
+  owner_user_id: string;
+  owner_display_name: string;
 };
 
 export type SecretGuessScoreResult = {
   guess_delta: number;
   results: SecretGuessResult[];
+  revealed_missions: SecretGuessRevealedMission[];
   ranking: MissionHuntRankingEntry[];
   all_completed: boolean;
   winner_message: string | null;
@@ -1874,6 +1887,46 @@ function getSecretGuessTargetUserIds(input: {
     .slice(0, SECRET_GUESS_TARGET_COUNT);
 }
 
+async function getSecretMissionRevealsForTrip(
+  tripId: string,
+): Promise<SecretGuessRevealedMission[]> {
+  const memberships = await getTripMemberships(tripId);
+  const memberUserIds = memberships.map((membership) => membership.user_id);
+
+  if (memberUserIds.length === 0) {
+    return [];
+  }
+
+  const [profiles, missionResponse] = await Promise.all([
+    Promise.all(memberUserIds.map((memberUserId) => getProfileById(memberUserId))),
+    supabaseRestFetch(
+      `mission?select=${getMissionSelectQuery()}&user_id=in.(${memberUserIds.map(encodeURIComponent).join(",")})&access=eq.1&order=user_id.asc,mission_id.asc`,
+      {},
+      { useServiceRole: true },
+    ),
+  ]);
+
+  await ensureResponseOk(
+    missionResponse,
+    "極秘ミッションの公開情報取得に失敗しました。",
+  );
+
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const missions = (await missionResponse.json()) as Mission[];
+
+  return missions.map((mission) => {
+    const profile = profileById.get(mission.user_id);
+
+    return {
+      mission_id: mission.id,
+      mission_name: mission.mission_name,
+      mission_description: mission.mission_description,
+      owner_user_id: mission.user_id,
+      owner_display_name: profile?.display_name ?? "不明なユーザー",
+    } satisfies SecretGuessRevealedMission;
+  });
+}
+
 async function getMissionHuntRankingForUser(userId: string) {
   const rankingResult = await getSettlementRankingForUser(userId);
   const pendingSettlement = await getPendingSettlementForUser(userId);
@@ -1921,10 +1974,14 @@ async function getMissionHuntRankingForUser(userId: string) {
 export async function getMissionHuntSettlementForUser(
   userId: string,
 ): Promise<MissionHuntSettlement> {
-  const [game, ranking, myDummyMission] = await Promise.all([
+  const pendingSettlement = await getPendingSettlementForUser(userId);
+  const [game, ranking, myDummyMission, revealedMissions] = await Promise.all([
     getSecretGuessGameForUser(userId),
     getMissionHuntRankingForUser(userId),
     getDummyMissionForUser(userId),
+    pendingSettlement
+      ? getSecretMissionRevealsForTrip(pendingSettlement.trip.id)
+      : Promise.resolve([]),
   ]);
   const myResult = readSecretGuessResultFromMission(myDummyMission);
   const parsedResult = myResult
@@ -1934,6 +1991,9 @@ export async function getMissionHuntSettlementForUser(
         results: Array.isArray(myResult.results)
           ? (myResult.results as SecretGuessResult[])
           : [],
+        revealed_missions: Array.isArray(myResult.revealed_missions)
+          ? (myResult.revealed_missions as SecretGuessRevealedMission[])
+          : revealedMissions,
         ranking,
         all_completed: ranking.every((entry) => entry.hunt_completed),
         winner_message: buildWinnerMessage(ranking),
@@ -2018,6 +2078,7 @@ export async function scoreSecretMissionGuessesForUser(input: {
     memberships,
   });
   const targetUserIdSet = new Set(targetUserIds);
+  const revealedMissions = await getSecretMissionRevealsForTrip(pendingTripId);
 
   async function finishSecretGuess(results: SecretGuessResult[]) {
     const guessDelta = results.reduce((sum, result) => sum + result.points, 0);
@@ -2030,6 +2091,7 @@ export async function scoreSecretMissionGuessesForUser(input: {
           secret_guess: {
             guess_delta: guessDelta,
             results,
+            revealed_missions: revealedMissions,
             completed_at: new Date().toISOString(),
           },
         }),
@@ -2048,6 +2110,7 @@ export async function scoreSecretMissionGuessesForUser(input: {
     return {
       guess_delta: guessDelta,
       results,
+      revealed_missions: revealedMissions,
       ranking,
       all_completed: allCompleted,
       winner_message: buildWinnerMessage(ranking),
@@ -2075,16 +2138,18 @@ export async function scoreSecretMissionGuessesForUser(input: {
 
   const missions = (await missionResponse.json()) as Mission[];
   const missionById = new Map(missions.map((mission) => [String(mission.id), mission]));
-  const realMissionNamesByUserId = new Map<string, Set<string>>();
+  const profiles = await Promise.all(
+    memberUserIds.map((memberUserId) => getProfileById(memberUserId)),
+  );
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const realMissionOwnersByName = new Map<string, Mission>();
 
   for (const mission of missions) {
     if (mission.access !== 1) {
       continue;
     }
 
-    const names = realMissionNamesByUserId.get(mission.user_id) ?? new Set<string>();
-    names.add(normalizeMissionName(mission.mission_name));
-    realMissionNamesByUserId.set(mission.user_id, names);
+    realMissionOwnersByName.set(normalizeMissionName(mission.mission_name), mission);
   }
 
   const seenMissionIds = new Set<string>();
@@ -2110,17 +2175,24 @@ export async function scoreSecretMissionGuessesForUser(input: {
       continue;
     }
 
-    const targetMissionNames =
-      realMissionNamesByUserId.get(assignment.targetUserId) ?? new Set<string>();
-    const correct = targetMissionNames.has(
+    const actualMission = realMissionOwnersByName.get(
       normalizeMissionName(mission.mission_name),
     );
+    const correct = actualMission?.user_id === assignment.targetUserId;
     const points = correct ? Math.floor(mission.point / 2) : -10;
+    const targetProfile = profileById.get(assignment.targetUserId);
+    const actualProfile = actualMission
+      ? profileById.get(actualMission.user_id)
+      : null;
 
     results.push({
       mission_id: mission.id,
       mission_name: mission.mission_name,
+      mission_description: mission.mission_description,
       target_user_id: assignment.targetUserId,
+      target_display_name: targetProfile?.display_name,
+      actual_user_id: actualMission?.user_id,
+      actual_display_name: actualProfile?.display_name,
       correct,
       points,
     });
