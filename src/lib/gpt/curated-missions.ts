@@ -63,14 +63,14 @@ const SECRET_CURATED_MISSIONS: CuratedMission[] = [
     missionName: "しりとり縛り",
     description:
       "その場で自分だけ、直前の人の発言の最後の一文字から始まる言葉で返事をしてみてください。5回連続で成功できたら完了です。",
-    points: 35,
+    points: 30,
     clearMethod: "0",
     tags: ["stealth", "language"],
   },
   {
     missionName: "セルフ語尾チェンジ",
     description:
-      "『〜っす』『〜じゃん』など、普段自分が使わない語尾を心の中で1つ決めて、こっそり会話に混ぜてください。5回連続使えたら成功です。",
+      "『〜っす』『〜じゃん』など、普段自分が使わない語尾を、こっそり会話に混ぜてください。5回連続使えたら成功です。",
     points: 30,
     clearMethod: "0",
     tags: ["stealth", "roleplay"],
@@ -95,32 +95,40 @@ const SECRET_CURATED_MISSIONS: CuratedMission[] = [
     missionName: "自然な誘導ミッション",
     description:
       "自分が気になったお店や場所に、「あそこ面白そうじゃない？」などと自然に声をかけて、誘導できたらクリアです。",
-    points: 35,
+    points: 40,
     clearMethod: "0",
     tags: ["stealth", "lead"],
   },
  {
     missionName: "「季節限定」の飲み物を飲む",
     description:
-      "「季節限定」,「期間限定」と書かれている飲みものを飲む。完飲できたらクリア。",
-    points: 35,
+      "「季節限定」,「期間限定」と書かれている飲みものを飲んでください。完飲できたらクリアです。",
+    points: 30,
     clearMethod: "0",
     tags: ["stealth", "drink"],
   },
  {
     missionName: "間違えて動画を撮る",
     description:
-      "みんなの写真をセルフィーで撮る時に間違えて動画を回す。",
+      "みんなの写真をセルフィーで撮る時に間違えて動画を回してください。",
     points: 40,
     clearMethod: "0",
     tags: ["stealth", "lead"],
   },
 {
   missionName: "他の人の写真に写り込む",
-  description: "誰かが風景や食べ物の写真を撮っている時に、その人のスマホの画面内にこっそりピースなどで写り込んでください。写りこめたら大成功です。", 
+  description: "誰かが風景や食べ物の写真を撮っている時に、その人のスマホの画面内にこっそりピースなどで写り込んでください。写りこめたら成功です。", 
   points: 50,
   clearMethod: "0",
-  tags: ["stealth", "photo", "challenge"], }
+  tags: ["stealth", "photo", "challenge"], 
+},
+{
+  missionName: "同じ方の手足を同時に出して歩く",
+  description: "定期的に、右手と右足、左手と左足を同時に出して歩いてください。10回以上できたら成功です。", 
+  points: 50,
+  clearMethod: "0",
+  tags: ["stealth", "photo", "challenge"], 
+},
 ];
 
 
