@@ -9,14 +9,14 @@ import {
   StatTile,
 } from "@/components/app-ui";
 import LogoutButton from "@/components/logout-button";
+import SecretGuessPanel from "@/components/secret-guess-panel";
 import SettlementFinishButton from "@/components/settlement-finish-button";
 import ThemeToggleButton from "@/components/theme-toggle-button";
-import { buildCompetitionRanks } from "@/lib/ranking";
 import {
   getCurrentProfileFromCookies,
+  getMissionHuntSettlementForUser,
   getMissionsForTripUser,
   getPendingSettlementForUser,
-  getSettlementRankingForUser,
   parseMissionAdditional,
   type MissionAccess,
   type MissionProcess,
@@ -27,6 +27,10 @@ function formatTripCode(tripCode: string) {
 }
 
 function getAccessLabel(access: MissionAccess) {
+  if (access === 2) {
+    return "ダミー";
+  }
+
   return access === 1 ? "極秘" : "共通";
 }
 
@@ -50,7 +54,12 @@ function getMissionTypeLabel(missionType: number) {
   return "通常";
 }
 
-export default async function SettlementPage() {
+export default async function SettlementPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ hunt?: string | string[] }>;
+}) {
+  const resolvedSearchParams = await searchParams;
   const profile = await getCurrentProfileFromCookies();
 
   if (!profile) {
@@ -63,15 +72,14 @@ export default async function SettlementPage() {
     redirect("/");
   }
 
-  const [missions, rankingResult] = await Promise.all([
+  const [allMissions, huntSettlement] = await Promise.all([
     getMissionsForTripUser({
       tripId: pendingSettlement.trip.id,
       userId: profile.id,
     }),
-    getSettlementRankingForUser(profile.id),
+    getMissionHuntSettlementForUser(profile.id),
   ]);
-  const ranking = rankingResult.ranking;
-  const rankingPositions = buildCompetitionRanks(ranking);
+  const missions = allMissions.filter((mission) => mission.access !== 2);
   const completedMissions = missions.filter((mission) => mission.process === 2);
   const completedCount = completedMissions.length;
   const totalPoints = completedMissions.reduce((sum, mission) => {
@@ -186,43 +194,14 @@ export default async function SettlementPage() {
           </section>
 
           <aside className="rounded-md border border-[#d8e0d9] bg-white p-4 shadow-sm dark:border-[#26364f] dark:bg-[#0f1b2d] sm:p-6">
-            <SectionHeader
-              eyebrow="Ranking"
-              title="ランキング"
-              description="スコアが高い順に表示中"
+            <SecretGuessPanel
+              game={huntSettlement.game}
+              initialRanking={huntSettlement.ranking}
+              initialResult={huntSettlement.my_result}
+              initialOpen={resolvedSearchParams.hunt === "1"}
+              winnerMessage={huntSettlement.winner_message}
+              finishButton={<SettlementFinishButton />}
             />
-
-            <ol className="mt-5 grid gap-3">
-              {ranking.map((user, index) => (
-                <li
-                  key={user.user_id}
-                  className={`grid min-h-16 grid-cols-[44px_1fr_auto] items-center gap-3 rounded-md border p-3 ${
-                    user.is_me
-                      ? "border-[#88b9a7] bg-[#eef6f1] dark:border-[#2563eb] dark:bg-[#102a56]"
-                      : "border-[#e0e6df] bg-[#fbfcf8] dark:border-[#26364f] dark:bg-[#0b1626]"
-                  }`}
-                >
-                  <span className="grid h-10 w-10 place-items-center rounded-md bg-white text-base font-bold text-[#2f7d6b] dark:bg-[#0f1b2d] dark:text-[#2dd4bf]">
-                    {rankingPositions[index]}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate font-bold text-[#14231f] dark:text-[#e6edf7]">
-                      {user.display_name}
-                      {user.is_me ? "（自分）" : ""}
-                    </p>
-                    <p className="text-xs text-[#5d6a63] dark:text-[#93a4b8]">
-                      完了 {user.completed_missions} 件
-                    </p>
-                  </div>
-                  <p className="text-lg font-bold text-[#14231f] dark:text-[#e6edf7]">
-                    {user.points}
-                    <span className="ml-1 text-xs text-[#5d6a63] dark:text-[#93a4b8]">pt</span>
-                  </p>
-                </li>
-              ))}
-            </ol>
-
-            <SettlementFinishButton />
           </aside>
         </div>
       </div>

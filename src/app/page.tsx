@@ -30,6 +30,10 @@ function formatTripCode(tripCode: string) {
 }
 
 function getAccessLabel(access: MissionAccess) {
+  if (access === 2) {
+    return "ダミー";
+  }
+
   return access === 1 ? "極秘" : "共通";
 }
 
