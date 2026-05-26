@@ -186,6 +186,7 @@ const DUMMY_SECRET_MISSION_COUNT = 1;
 const SECRET_MISSION_COUNT =
   VISIBLE_SECRET_MISSION_COUNT + DUMMY_SECRET_MISSION_COUNT;
 const SECRET_GUESS_TARGET_COUNT = 3;
+const SECRET_GUESS_MISSION_CANDIDATE_COUNT = 5;
 
 export class ApiError extends Error {
   status: number;
@@ -1925,9 +1926,10 @@ export async function getSecretGuessGameForUser(userId: string): Promise<SecretG
     throw new ApiError("結算対象の trip がありません。", 404);
   }
 
-  const memberships = await getTripMemberships(pendingSettlement.trip.id);
+  const pendingTripId = pendingSettlement.trip.id;
+  const memberships = await getTripMemberships(pendingTripId);
   const memberUserIds = getSecretGuessTargetUserIds({
-    tripId: pendingSettlement.trip.id,
+    tripId: pendingTripId,
     userId,
     memberships,
   });
@@ -1950,7 +1952,10 @@ export async function getSecretGuessGameForUser(userId: string): Promise<SecretG
 
   await ensureResponseOk(missionResponse, "極秘ミッション候補の取得に失敗しました。");
 
-  const secretMissions = (await missionResponse.json()) as Mission[];
+  const secretMissions = ((await missionResponse.json()) as Mission[]).slice(
+    0,
+    SECRET_GUESS_MISSION_CANDIDATE_COUNT,
+  );
 
   return {
     members: profiles,
@@ -1973,33 +1978,61 @@ export async function scoreSecretMissionGuessesForUser(input: {
     throw new ApiError("結算対象の trip がありません。", 404);
   }
 
-  const memberships = await getTripMemberships(pendingSettlement.trip.id);
+  const pendingTripId = pendingSettlement.trip.id;
+  const memberships = await getTripMemberships(pendingTripId);
   const memberUserIds = memberships.map((membership) => membership.user_id);
   const memberUserIdSet = new Set(memberUserIds);
   const targetUserIds = getSecretGuessTargetUserIds({
-    tripId: pendingSettlement.trip.id,
+    tripId: pendingTripId,
     userId: input.userId,
     memberships,
   });
   const targetUserIdSet = new Set(targetUserIds);
-  const missionIds = input.assignments.map((assignment) => assignment.missionId);
 
-  if (missionIds.length === 0) {
-    throw new ApiError("割り当てるミッションを選択してください。", 400);
+  async function finishSecretGuess(results: SecretGuessResult[]) {
+    const guessDelta = results.reduce((sum, result) => sum + result.points, 0);
+    const dummyMission = await getDummyMissionForUser(input.userId);
+
+    if (dummyMission) {
+      await updateMissionByRowId(dummyMission.id, {
+        additional: stringifyMissionText({
+          ...parseMissionText(dummyMission.additional),
+          secret_guess: {
+            guess_delta: guessDelta,
+            results,
+            completed_at: new Date().toISOString(),
+          },
+        }),
+      });
+    }
+
+    await markSettlementProgressForUser(
+      input.userId,
+      pendingTripId,
+      2,
+    );
+
+    const ranking = await getMissionHuntRankingForUser(input.userId);
+    const allCompleted = ranking.every((entry) => entry.hunt_completed);
+
+    return {
+      guess_delta: guessDelta,
+      results,
+      ranking,
+      all_completed: allCompleted,
+      winner_message: buildWinnerMessage(ranking),
+    };
   }
 
-  for (const assignment of input.assignments) {
-    if (!memberUserIdSet.has(assignment.targetUserId)) {
-      throw new ApiError("不正な割り当て先が含まれています。", 400);
-    }
+  const validAssignments = input.assignments.filter(
+    (assignment) =>
+      memberUserIdSet.has(assignment.targetUserId) &&
+      assignment.targetUserId !== input.userId &&
+      targetUserIdSet.has(assignment.targetUserId),
+  );
 
-    if (assignment.targetUserId === input.userId) {
-      throw new ApiError("自分には割り当てできません。", 400);
-    }
-
-    if (!targetUserIdSet.has(assignment.targetUserId)) {
-      throw new ApiError("今回のハント対象ではない参加者が含まれています。", 400);
-    }
+  if (targetUserIds.length === 0 || validAssignments.length === 0) {
+    return finishSecretGuess([]);
   }
 
   const missionResponse = await supabaseRestFetch(
@@ -2027,7 +2060,7 @@ export async function scoreSecretMissionGuessesForUser(input: {
   const seenMissionIds = new Set<string>();
   const results: SecretGuessResult[] = [];
 
-  for (const assignment of input.assignments) {
+  for (const assignment of validAssignments) {
     if (seenMissionIds.has(assignment.missionId)) {
       continue;
     }
@@ -2036,15 +2069,15 @@ export async function scoreSecretMissionGuessesForUser(input: {
     const mission = missionById.get(assignment.missionId);
 
     if (!mission) {
-      throw new ApiError("不正なミッションが含まれています。", 400);
+      continue;
     }
 
     if (mission.user_id === input.userId) {
-      throw new ApiError("自分のミッションはハント対象にできません。", 400);
+      continue;
     }
 
     if (!targetUserIdSet.has(mission.user_id)) {
-      throw new ApiError("今回のハント対象ではないミッションが含まれています。", 400);
+      continue;
     }
 
     const targetMissionNames =
@@ -2063,38 +2096,7 @@ export async function scoreSecretMissionGuessesForUser(input: {
     });
   }
 
-  const guessDelta = results.reduce((sum, result) => sum + result.points, 0);
-  const dummyMission = await getDummyMissionForUser(input.userId);
-
-  if (dummyMission) {
-    await updateMissionByRowId(dummyMission.id, {
-      additional: stringifyMissionText({
-        ...parseMissionText(dummyMission.additional),
-        secret_guess: {
-          guess_delta: guessDelta,
-          results,
-          completed_at: new Date().toISOString(),
-        },
-      }),
-    });
-  }
-
-  await markSettlementProgressForUser(
-    input.userId,
-    pendingSettlement.trip.id,
-    2,
-  );
-
-  const ranking = await getMissionHuntRankingForUser(input.userId);
-  const allCompleted = ranking.every((entry) => entry.hunt_completed);
-
-  return {
-    guess_delta: guessDelta,
-    results,
-    ranking,
-    all_completed: allCompleted,
-    winner_message: buildWinnerMessage(ranking),
-  };
+  return finishSecretGuess(results);
 }
 
 export async function createTripForUser(input: {

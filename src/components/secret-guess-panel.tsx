@@ -33,6 +33,7 @@ export default function SecretGuessPanel({
   const [isOpen, setIsOpen] = useState(initialOpen);
   const [assignments, setAssignments] = useState<Record<string, string>>({});
   const [draggingMissionId, setDraggingMissionId] = useState<string | null>(null);
+  const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
   const [result, setResult] = useState<SecretGuessScoreResult | null>(initialResult);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -43,6 +44,7 @@ export default function SecretGuessPanel({
   );
   const currentWinnerMessage = result?.winner_message ?? winnerMessage;
   const assignedMissionIds = new Set(Object.keys(assignments));
+  const hasHuntCandidates = game.members.length > 0 && game.missions.length > 0;
   const unassignedMissions = game.missions.filter(
     (mission) => !assignedMissionIds.has(String(mission.id)),
   );
@@ -67,28 +69,34 @@ export default function SecretGuessPanel({
   }, [assignments, game]);
 
   function assignMission(targetUserId: string) {
-    if (!draggingMissionId) {
+    const missionId = draggingMissionId ?? selectedMissionId;
+
+    if (!missionId) {
       return;
     }
 
     setAssignments((current) => ({
       ...current,
-      [draggingMissionId]: targetUserId,
+      [missionId]: targetUserId,
     }));
     setDraggingMissionId(null);
+    setSelectedMissionId(null);
   }
 
   function unassignMission() {
-    if (!draggingMissionId) {
+    const missionId = draggingMissionId ?? selectedMissionId;
+
+    if (!missionId) {
       return;
     }
 
     setAssignments((current) => {
       const next = { ...current };
-      delete next[draggingMissionId];
+      delete next[missionId];
       return next;
     });
     setDraggingMissionId(null);
+    setSelectedMissionId(null);
   }
 
   async function submitGuesses() {
@@ -244,12 +252,19 @@ export default function SecretGuessPanel({
                   <DropZone
                     title="未割り当て"
                     onDrop={unassignMission}
+                    onAssign={selectedMissionId ? unassignMission : undefined}
                     className="min-h-80"
                   >
                     {unassignedMissions.map((mission) => (
                       <MissionCard
                         key={mission.id}
                         mission={mission}
+                        isSelected={selectedMissionId === String(mission.id)}
+                        onSelect={() =>
+                          setSelectedMissionId((current) =>
+                            current === String(mission.id) ? null : String(mission.id),
+                          )
+                        }
                         onDragStart={() => setDraggingMissionId(String(mission.id))}
                       />
                     ))}
@@ -262,11 +277,22 @@ export default function SecretGuessPanel({
                         title={member.display_name}
                         subtitle={`@${member.username}`}
                         onDrop={() => assignMission(member.id)}
+                        onAssign={
+                          selectedMissionId ? () => assignMission(member.id) : undefined
+                        }
                       >
                         {(missionsByMemberId.get(member.id) ?? []).map((mission) => (
                           <MissionCard
                             key={mission.id}
                             mission={mission}
+                            isSelected={selectedMissionId === String(mission.id)}
+                            onSelect={() =>
+                              setSelectedMissionId((current) =>
+                                current === String(mission.id)
+                                  ? null
+                                  : String(mission.id),
+                              )
+                            }
                             onDragStart={() => setDraggingMissionId(String(mission.id))}
                           />
                         ))}
@@ -285,7 +311,10 @@ export default function SecretGuessPanel({
                   <button
                     type="button"
                     onClick={submitGuesses}
-                    disabled={isSubmitting || Object.keys(assignments).length === 0}
+                    disabled={
+                      isSubmitting ||
+                      (hasHuntCandidates && Object.keys(assignments).length === 0)
+                    }
                     className="inline-flex h-11 min-w-36 items-center justify-center gap-2 rounded-md bg-[#2f7d6b] px-5 text-sm font-bold text-white transition hover:bg-[#276452] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-[#0ea5e9] dark:hover:bg-[#0284c7]"
                   >
                     <Icon name="check" />
@@ -376,12 +405,14 @@ function DropZone({
   className = "",
   children,
   onDrop,
+  onAssign,
 }: {
   title: string;
   subtitle?: string;
   className?: string;
   children: ReactNode;
   onDrop: () => void;
+  onAssign?: () => void;
 }) {
   return (
     <div
@@ -389,10 +420,22 @@ function DropZone({
       onDrop={onDrop}
       className={`rounded-md border border-dashed border-[#cfd8d1] bg-[#fbfcf8] p-3 dark:border-[#26364f] dark:bg-[#0b1626] ${className}`}
     >
-      <div className="mb-3">
-        <p className="font-bold text-[#14231f] dark:text-[#e6edf7]">{title}</p>
-        {subtitle ? (
-          <p className="text-xs text-[#5d6a63] dark:text-[#93a4b8]">{subtitle}</p>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <p className="font-bold text-[#14231f] dark:text-[#e6edf7]">{title}</p>
+          {subtitle ? (
+            <p className="text-xs text-[#5d6a63] dark:text-[#93a4b8]">{subtitle}</p>
+          ) : null}
+        </div>
+        {onAssign ? (
+          <button
+            type="button"
+            onClick={onAssign}
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-1 rounded-md bg-[#315f9a] px-3 text-xs font-bold text-white transition hover:bg-[#294f80] dark:bg-[#2563eb] dark:hover:bg-[#1d4ed8]"
+          >
+            <Icon name="arrow" />
+            配置
+          </button>
         ) : null}
       </div>
       <div className="grid gap-2">{children}</div>
@@ -402,20 +445,36 @@ function DropZone({
 
 function MissionCard({
   mission,
+  isSelected,
+  onSelect,
   onDragStart,
 }: {
   mission: SecretGuessGame["missions"][number];
+  isSelected: boolean;
+  onSelect: () => void;
   onDragStart: () => void;
 }) {
   return (
     <article
       draggable
       onDragStart={onDragStart}
-      className="cursor-grab rounded-md border border-[#e0e6df] bg-white p-3 shadow-sm active:cursor-grabbing dark:border-[#26364f] dark:bg-[#0f1b2d]"
+      onClick={onSelect}
+      className={`cursor-grab rounded-md border p-3 shadow-sm transition active:cursor-grabbing ${
+        isSelected
+          ? "border-[#315f9a] bg-[#eef4fb] ring-2 ring-[#315f9a]/25 dark:border-[#38bdf8] dark:bg-[#132b45]"
+          : "border-[#e0e6df] bg-white dark:border-[#26364f] dark:bg-[#0f1b2d]"
+      }`}
     >
-      <p className="font-bold text-[#14231f] dark:text-[#e6edf7]">
-        {mission.mission_name}
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="font-bold text-[#14231f] dark:text-[#e6edf7]">
+          {mission.mission_name}
+        </p>
+        {isSelected ? (
+          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[#315f9a] text-white dark:bg-[#2563eb]">
+            <Icon name="check" className="h-3.5 w-3.5" />
+          </span>
+        ) : null}
+      </div>
       <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#5d6a63] dark:text-[#93a4b8]">
         {mission.mission_description}
       </p>
