@@ -3,6 +3,7 @@ import "server-only";
 import { cookies } from "next/headers";
 
 import { generateMissionFromTravelInput } from "@/lib/gpt/route";
+import { selectCuratedMission } from "@/lib/gpt/curated-missions";
 
 const supabaseUrl =
   process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -870,6 +871,35 @@ async function getGeneratedCommonMissionDrafts(trip: Trip) {
     } satisfies MissionDraft;
   });
 
+  // inject one curated mission deterministically based on trip id
+  try {
+    const curated = selectCuratedMission("common", trip.id);
+    if (curated) {
+      const index = Math.abs(
+        [...trip.id].reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 7),
+      ) % Math.max(1, drafts.length);
+
+      const curatedDraft = {
+        mission_id: createMissionGroupId(),
+        mission_name: curated.missionName,
+        mission_description: curated.description,
+        access: 0 as MissionAccess,
+        point: curated.points ?? 20,
+        process: getInitialMissionProcess(Number(curated.clearMethod ?? "0") as MissionType),
+        mission_type: normalizeGeneratedMissionType(Number(curated.clearMethod ?? "0")),
+      };
+
+      // replace at index to ensure exactly COMMON_MISSION_COUNT with one curated
+      if (drafts.length >= COMMON_MISSION_COUNT) {
+        drafts[index] = curatedDraft;
+      } else {
+        drafts.push(curatedDraft);
+      }
+    }
+  } catch {
+    // ignore curated injection failures
+  }
+
   if (drafts.length < COMMON_MISSION_COUNT) {
     throw new ApiError("GPT から十分な数の共通ミッションを生成できませんでした。", 500);
   }
@@ -905,6 +935,36 @@ async function getGeneratedSecretMissionDrafts(input: {
       mission_type: missionType,
     } satisfies MissionDraft;
   });
+
+  // inject one curated secret mission deterministically based on trip id + userId
+  try {
+    // include current time so selection varies between generations
+    const seed = `${input.trip.id}:${input.userId}:${Date.now()}`;
+    const curated = selectCuratedMission("secret", seed);
+    if (curated) {
+      const index = Math.abs(
+        [...seed].reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 13),
+      ) % Math.max(1, drafts.length);
+
+      const curatedDraft = {
+        mission_id: createMissionGroupId(),
+        mission_name: curated.missionName,
+        mission_description: curated.description,
+        access: 1 as MissionAccess,
+        point: curated.points ?? 20,
+        process: getInitialMissionProcess(Number(curated.clearMethod ?? "0") as MissionType),
+        mission_type: normalizeGeneratedMissionType(Number(curated.clearMethod ?? "0")),
+      };
+
+      if (drafts.length >= SECRET_MISSION_COUNT) {
+        drafts[index] = curatedDraft;
+      } else {
+        drafts.push(curatedDraft);
+      }
+    }
+  } catch {
+    // ignore curated injection failures
+  }
 
   if (drafts.length < SECRET_MISSION_COUNT) {
     throw new ApiError("GPT から十分な数の極秘ミッションを生成できませんでした。", 500);
