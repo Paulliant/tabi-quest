@@ -1367,6 +1367,7 @@ export async function listMissionsForUser(userId: string) {
 export async function completeMissionForUser(input: {
   userId: string;
   missionId: string;
+  action?: "complete" | "undo";
   vote?: unknown;
   extraData?: unknown;
   additional?: unknown;
@@ -1379,15 +1380,41 @@ export async function completeMissionForUser(input: {
     throw new ApiError("このミッションを更新する権限がありません。", 403);
   }
 
-  if (mission.process === 2) {
-    throw new ApiError("このミッションはすでに完了しています。", 409);
-  }
-
   if (mission.mission_type === 1) {
     throw new ApiError("投票タイプのミッションは投票画面から操作してください。", 400);
   }
 
   const currentAdditional = parseMissionText(mission.additional);
+  const isUndo = input.action === "undo";
+
+  if (isUndo) {
+    if (mission.mission_type === 2) {
+      throw new ApiError("写真付き投票ミッションは投票画面から操作してください。", 400);
+    }
+
+    if (mission.process !== 2) {
+      return mission;
+    }
+
+    const {
+      completed_by: _completedBy,
+      completed_at: _completedAt,
+      ...remainingAdditional
+    } = currentAdditional;
+
+    void _completedBy;
+    void _completedAt;
+
+    return updateMissionByRowId(mission.id, {
+      process: getInitialMissionProcess(mission.mission_type),
+      additional: stringifyMissionText(remainingAdditional),
+    });
+  }
+
+  if (mission.process === 2) {
+    throw new ApiError("このミッションはすでに完了しています。", 409);
+  }
+
   const incomingAdditional = normalizeJsonObject(input.additional);
   const isPhotoVoteMission = mission.mission_type === 2;
 

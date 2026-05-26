@@ -11,6 +11,7 @@ export async function POST(request: Request) {
     const profile = await requireCurrentProfileFromCookies();
     const body = (await request.json()) as {
       missionId?: string;
+      action?: "complete" | "undo";
       vote?: unknown;
       extraData?: unknown;
       additional?: unknown;
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
     const mission = await completeMissionForUser({
       userId: profile.id,
       missionId: body.missionId,
+      action: body.action,
       vote: body.vote,
       extraData: body.extraData,
       additional: body.additional,

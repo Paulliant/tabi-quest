@@ -25,7 +25,10 @@ export default function MissionCompleteButton({
 
   const isPhotoUploadStep = missionType === 2 && process === 0;
 
-  async function submitMission(additional: Record<string, unknown> = {}) {
+  async function submitMission(
+    additional: Record<string, unknown> = {},
+    action: "complete" | "undo" = "complete",
+  ) {
     setErrorMessage("");
     setIsSubmitting(true);
 
@@ -37,6 +40,7 @@ export default function MissionCompleteButton({
         },
         body: JSON.stringify({
           missionId,
+          action,
           additional,
         }),
       });
@@ -64,7 +68,7 @@ export default function MissionCompleteButton({
       return;
     }
 
-    void submitMission();
+    void submitMission({}, process === 2 ? "undo" : "complete");
   }
 
   async function handlePhotoSelected(event: ChangeEvent<HTMLInputElement>) {
@@ -94,7 +98,7 @@ export default function MissionCompleteButton({
   }
 
   const isDone = process === 2;
-  const disabled = isSubmitting || isDone;
+  const disabled = isSubmitting;
   const activeStep =
     missionType === 2 && process === 0
       ? {
@@ -135,9 +139,10 @@ export default function MissionCompleteButton({
         disabled={disabled}
         className={`inline-flex h-11 min-w-28 items-center justify-center gap-2 rounded-md px-5 text-sm font-bold transition ${
           isDone
-            ? "bg-[#edf0eb] text-[#59645f] dark:bg-[#172033] dark:text-[#b6c2d2]"
+            ? "bg-[#315f9a] text-white hover:bg-[#294f80] dark:bg-[#2563eb] dark:hover:bg-[#1d4ed8]"
             : "bg-[#2f7d6b] text-white hover:bg-[#276452] dark:bg-[#0ea5e9] dark:hover:bg-[#0284c7]"
         } disabled:cursor-not-allowed disabled:opacity-75`}
+        title={isDone ? "押すと未完了に戻します" : undefined}
       >
         <Icon name={isDone ? "check" : activeStep.icon} />
         {label}
