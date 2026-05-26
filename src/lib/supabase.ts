@@ -181,6 +181,7 @@ export type MissionVoteView = {
 
 const COMMON_MISSION_COUNT = 3;
 const SECRET_MISSION_COUNT = 3;
+const SECRET_GUESS_TARGET_COUNT = 3;
 
 export class ApiError extends Error {
   status: number;
@@ -1277,19 +1278,14 @@ export async function voteMissionForUser(input: {
   const context = await getVotingContext(input);
   const targetMission = context.missionByUserId.get(input.targetUserId);
 
-  if (context.mission.process === 2) {
-    throw new ApiError("このミッションは投票済みです。", 409);
-  }
-
   if (!targetMission) {
     throw new ApiError("投票先のミッションが見つかりません。", 404);
   }
 
   const currentAdditional = parseMissionText(context.mission.additional);
-
-  if (getStringValue(currentAdditional.vote_target_user_id)) {
-    throw new ApiError("このミッションは投票済みです。", 409);
-  }
+  const previousTargetUserId = getStringValue(
+    currentAdditional.vote_target_user_id,
+  );
 
   if (
     context.mission.mission_type === 2 &&
@@ -1307,9 +1303,21 @@ export async function voteMissionForUser(input: {
     throw new ApiError("写真をアップロードしていないユーザーには投票できません。", 400);
   }
 
-  await updateMissionByRowId(targetMission.id, {
-    vote: normalizeMissionVote(targetMission.vote) + 1,
-  });
+  if (previousTargetUserId !== input.targetUserId) {
+    const previousTargetMission = previousTargetUserId
+      ? context.missionByUserId.get(previousTargetUserId)
+      : null;
+
+    if (previousTargetMission) {
+      await updateMissionByRowId(previousTargetMission.id, {
+        vote: Math.max(0, normalizeMissionVote(previousTargetMission.vote) - 1),
+      });
+    }
+
+    await updateMissionByRowId(targetMission.id, {
+      vote: normalizeMissionVote(targetMission.vote) + 1,
+    });
+  }
 
   const votedMission = await updateMissionByRowId(context.mission.id, {
     process: 2,
@@ -1317,6 +1325,7 @@ export async function voteMissionForUser(input: {
       ...currentAdditional,
       vote_target_user_id: input.targetUserId,
       voted_at: new Date().toISOString(),
+      vote_changed_at: previousTargetUserId ? new Date().toISOString() : undefined,
       completed_by: input.userId,
       completed_at: new Date().toISOString(),
     }),
@@ -1574,6 +1583,33 @@ function buildWinnerMessage(ranking: MissionHuntRankingEntry[]) {
   return `優勝者は${winner.total_points}点を獲得した${winnerNames}です🏆`;
 }
 
+function hashString(value: string) {
+  let hash = 2166136261;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return hash >>> 0;
+}
+
+function getSecretGuessTargetUserIds(input: {
+  tripId: string;
+  userId: string;
+  memberships: UserTrip[];
+}) {
+  return input.memberships
+    .map((membership) => membership.user_id)
+    .filter((memberUserId) => memberUserId !== input.userId)
+    .sort((a, b) => {
+      const seedA = hashString(`${input.tripId}:${input.userId}:${a}`);
+      const seedB = hashString(`${input.tripId}:${input.userId}:${b}`);
+      return seedA - seedB || a.localeCompare(b);
+    })
+    .slice(0, SECRET_GUESS_TARGET_COUNT);
+}
+
 async function getMissionHuntRankingForUser(userId: string) {
   const rankingResult = await getSettlementRankingForUser(userId);
   const pendingSettlement = await getPendingSettlementForUser(userId);
@@ -1657,10 +1693,21 @@ export async function getSecretGuessGameForUser(userId: string): Promise<SecretG
   }
 
   const memberships = await getTripMemberships(pendingSettlement.trip.id);
-  const memberUserIds = memberships.map((membership) => membership.user_id);
+  const memberUserIds = getSecretGuessTargetUserIds({
+    tripId: pendingSettlement.trip.id,
+    userId,
+    memberships,
+  });
   const profiles = await Promise.all(
     memberUserIds.map((memberUserId) => getProfileById(memberUserId)),
   );
+
+  if (memberUserIds.length === 0) {
+    return {
+      members: [],
+      missions: [],
+    };
+  }
 
   const missionResponse = await supabaseRestFetch(
     `mission?select=${getMissionSelectQuery()}&user_id=in.(${memberUserIds.map(encodeURIComponent).join(",")})&access=in.(1,2)&order=mission_id.asc`,
@@ -1696,6 +1743,12 @@ export async function scoreSecretMissionGuessesForUser(input: {
   const memberships = await getTripMemberships(pendingSettlement.trip.id);
   const memberUserIds = memberships.map((membership) => membership.user_id);
   const memberUserIdSet = new Set(memberUserIds);
+  const targetUserIds = getSecretGuessTargetUserIds({
+    tripId: pendingSettlement.trip.id,
+    userId: input.userId,
+    memberships,
+  });
+  const targetUserIdSet = new Set(targetUserIds);
   const missionIds = input.assignments.map((assignment) => assignment.missionId);
 
   if (missionIds.length === 0) {
@@ -1705,6 +1758,14 @@ export async function scoreSecretMissionGuessesForUser(input: {
   for (const assignment of input.assignments) {
     if (!memberUserIdSet.has(assignment.targetUserId)) {
       throw new ApiError("不正な割り当て先が含まれています。", 400);
+    }
+
+    if (assignment.targetUserId === input.userId) {
+      throw new ApiError("自分には割り当てできません。", 400);
+    }
+
+    if (!targetUserIdSet.has(assignment.targetUserId)) {
+      throw new ApiError("今回のハント対象ではない参加者が含まれています。", 400);
     }
   }
 
@@ -1731,6 +1792,14 @@ export async function scoreSecretMissionGuessesForUser(input: {
 
     if (!mission) {
       throw new ApiError("不正なミッションが含まれています。", 400);
+    }
+
+    if (mission.user_id === input.userId) {
+      throw new ApiError("自分のミッションはハント対象にできません。", 400);
+    }
+
+    if (!targetUserIdSet.has(mission.user_id)) {
+      throw new ApiError("今回のハント対象ではないミッションが含まれています。", 400);
     }
 
     const correct = mission.access === 1 && mission.user_id === assignment.targetUserId;
